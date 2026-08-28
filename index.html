@@ -911,10 +911,18 @@ function canWriteCat(cat){
   return !list.length || list.includes(cat);
 }
 /* 이 작품을 고칠 수 있는가 */
+function whyBlocked(s){
+  if(Store.mode!=='cloud' || isAdmin() || !s) return '';
+  const r=myRec();
+  if(!r) return '작가로 등록되지 않은 계정입니다. 관리자에게 등록을 요청하세요.';
+  if(!canWriteCat(s.category)) return `'${s.category||'분류 없음'}' 게시판 담당이 아닙니다. 관리자에게 담당 게시판 추가를 요청하세요.`;
+  return `이 작품의 작가가 아닙니다. 관리자가 작품 수정에서 작가를 '${r.name||S.user.email}' 으로 바꿔 주면 쓸 수 있습니다.`;
+}
 function canEditSeries(s){
   if(Store.mode!=='cloud' || isAdmin()) return true;
   const r=myRec(); if(!r || !s) return false;
-  const mine = s.authorEmail? (s.authorEmail===S.user.email) : (s.author===r.name);
+  const mine = (s.authorEmail && s.authorEmail===S.user.email)
+            || (r.name && s.author===r.name);
   return (mine || r.editOthers===true) && canWriteCat(s.category);
 }
 /* 내가 쓸 수 있는 분류 목록 */
@@ -1326,6 +1334,14 @@ function openSeriesModal(s){
     <div class="modal-bd">
       <div class="f"><label>작품 제목</label>
         <input class="inp" id="mTitle" value="${esc(s.title||'')}" placeholder="예: 사무실의 마왕"></div>
+      ${(isAdmin() && Store.mode==='cloud' && S.authors.length)? `
+      <div class="f"><label>작가 계정 <span class="opt">(이 작품을 관리할 사람)</span></label>
+        <select class="inp" id="mOwner">
+          <option value="">${esc(S.user? S.user.email : '나')} (관리자)</option>
+          ${S.authors.map(a=>`<option value="${esc(a.email)}" ${s.authorEmail===a.email?'selected':''}>${esc(a.name||a.email)} · ${esc(a.email)}</option>`).join('')}
+        </select>
+        <div class="hint">여기서 고른 사람이 이 작품에 회차를 올리고 고칠 수 있습니다.</div>
+      </div>`:''}
       <div class="f2">
         <div class="f"><label>작가명</label><input class="inp" id="mAuthor" value="${esc(s.author||Me.name||'')}" placeholder="이름"></div>
         <div class="f"><label>분류</label><select class="inp" id="mCat">${catOptions(s.category)}</select></div>
@@ -1355,6 +1371,10 @@ function openSeriesModal(s){
   const prev=()=>{ $('#mPrev').innerHTML = coverHTML({cover:tmpCover, title:$('#mTitle').value||'제목', author:$('#mAuthor').value, grad:tmpGrad}); };
   prev();
   $('#mTitle').oninput = prev;
+  if($('#mOwner')) $('#mOwner').onchange = e=>{
+    const a=S.authors.find(x=>x.email===e.target.value);
+    if(a && a.name) { $('#mAuthor').value=a.name; prev(); }
+  };
   $$('#mPal button').forEach(b=> b.onclick=()=>{ tmpGrad=+b.dataset.g; tmpCover=null; $$('#mPal button').forEach(x=>x.classList.toggle('on',x===b)); prev(); });
   $('#mPick').onclick = ()=> $('#mFile').click();
   $('#mClear').onclick = ()=>{ tmpCover=null; prev(); };
@@ -1373,7 +1393,8 @@ function openSeriesModal(s){
       summary: $('#mSum').value.trim(),
       tags: $('#mTags').value.split(',').map(t=>t.trim()).filter(Boolean),
       cover: tmpCover||null, grad: tmpGrad,
-      authorEmail: s.authorEmail || (S.user? S.user.email : ''),
+      authorEmail: ($('#mOwner')? ($('#mOwner').value || (S.user? S.user.email : ''))
+                                : (s.authorEmail || (S.user? S.user.email : ''))),
       views: s.views||0, likes: s.likes||0, epCount: s.epCount||0
     };
     const id = await Store.saveSeries(obj);
@@ -1806,7 +1827,8 @@ function viewWrite(params){
       <h1>${eid?'회차 수정':'새 회차 등록'}</h1>
       <div class="right">
         <select class="mini" id="wSeries" style="max-width:230px">
-          ${S.series.map(s=>`<option value="${s.id}" ${s.id===sid?'selected':''}>${esc(s.title)}</option>`).join('')}
+          ${(S.series.filter(x=>canEditSeries(x)).length? S.series.filter(x=>canEditSeries(x)) : S.series)
+            .map(s=>`<option value="${s.id}" ${s.id===sid?'selected':''}>${esc(s.title)}</option>`).join('')}
         </select>
         <button class="btn btn-line" id="wNewS">＋ 새 작품</button>
       </div>
@@ -1852,6 +1874,8 @@ function viewWrite(params){
   $('#wSave').onclick = async ()=>{
     const sidNow=$('#wSeries').value;
     if(!sidNow){ toast('작품을 선택해 주세요'); return; }
+    const target = S.series.find(x=>x.id===sidNow);
+    if(target && !canEditSeries(target)){ toast(whyBlocked(target)); return; }
     if(!body.value.trim()){ toast('본문이 비어 있습니다'); return; }
     const eps = S.eps[sidNow] || await Store.getEpisodes(sidNow);
     const maxNo = eps.reduce((m,e)=>Math.max(m, e.no||0), 0);
