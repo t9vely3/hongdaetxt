@@ -109,6 +109,9 @@ img{max-width:100%;display:block}
 .searchbox:focus-within{border-color:var(--accent);background:var(--surface)}
 .searchbox input{border:0;background:none;outline:none;width:100%;font-size:14px}
 .searchbox svg{flex:none;color:var(--tx-3)}
+.conn{width:30px;height:36px;display:grid;place-items:center;flex:none}
+.conn i{width:8px;height:8px;border-radius:50%;background:var(--tx-3);box-shadow:0 0 0 3px var(--bg-soft);transition:.2s}
+.conn:hover i{transform:scale(1.25)}
 .icobtn{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:var(--tx-2)}
 .icobtn:hover{background:var(--bg-soft);color:var(--tx)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:10px;font-weight:700;font-size:14px;transition:.15s;white-space:nowrap}
@@ -294,6 +297,22 @@ textarea.inp{resize:vertical;min-height:96px;line-height:1.7}
 .batch-row .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .batch-row .sz{color:var(--tx-3);font-size:12px}
 
+/* ── 이름 게이트 ──────────────────────────── */
+.gate{position:fixed;inset:0;z-index:300;background:var(--bg);display:none;align-items:center;justify-content:center;padding:24px}
+.gate.on{display:flex}
+.gate::before{content:'';position:absolute;inset:0;background:
+  radial-gradient(60% 50% at 15% 10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%),
+  radial-gradient(55% 45% at 85% 85%, color-mix(in srgb, #b06bff 20%, transparent), transparent 70%)}
+.gate-card{position:relative;width:100%;max-width:380px;text-align:center}
+.gate-mark{width:64px;height:64px;border-radius:20px;margin:0 auto 20px;display:grid;place-items:center;
+  background:linear-gradient(140deg,var(--accent),#b06bff);box-shadow:0 10px 30px rgba(91,75,255,.35)}
+.gate-card h1{font-family:var(--font-disp);font-size:29px;font-weight:700;letter-spacing:-.05em;margin:0 0 10px}
+.gate-card p{color:var(--tx-2);font-size:14.5px;line-height:1.7;margin:0 0 24px}
+.gate-card .inp{text-align:center;font-size:16px;padding:14px}
+.gate-card .btn{width:100%;margin-top:10px}
+.gate-sub{display:block;width:100%;margin-top:16px;color:var(--tx-3);font-size:13px;text-decoration:underline;text-underline-offset:3px}
+.gate-sub:hover{color:var(--accent-tx)}
+
 /* ── misc ─────────────────────────────────── */
 .empty{text-align:center;padding:70px 20px;color:var(--tx-3)}
 .empty b{display:block;font-family:var(--font-disp);font-size:17px;color:var(--tx-2);margin-bottom:8px;font-weight:700}
@@ -335,7 +354,8 @@ textarea.inp{resize:vertical;min-height:96px;line-height:1.7}
 <!-- ══════════════════════════════════════════════════════════════
      1) Firebase 콘솔 → 프로젝트 설정 → 내 앱 → 웹 앱 → firebaseConfig 값을
         아래에 그대로 붙여 넣으세요.
-     2) ADMIN_EMAIL 에는 관리자(작가를 임명하는 사람)의 구글 계정을 넣으세요.
+     2) ADMIN_EMAIL 에는 관리자(작가를 임명하는 사람)의 계정 이메일을 넣으세요.
+     3) 구글 로그인도 함께 쓰려면 ENABLE_GOOGLE_LOGIN 을 true 로 바꾸세요.
      값을 바꾸지 않으면 이 브라우저에만 저장되는 데모 모드로 실행됩니다.
      ══════════════════════════════════════════════════════════════ -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -350,7 +370,8 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "여기에-senderId",
   appId:             "여기에-appId"
 };
-window.ADMIN_EMAIL = "여기에-관리자-구글계정@gmail.com";
+window.ADMIN_EMAIL = "여기에-관리자-이메일@example.com";
+window.ENABLE_GOOGLE_LOGIN = false;   // 이메일/비밀번호만 쓰면 false 그대로
 </script>
 </head>
 <body>
@@ -386,6 +407,7 @@ window.ADMIN_EMAIL = "여기에-관리자-구글계정@gmail.com";
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
         <input id="q" placeholder="작품·작가 검색" autocomplete="off">
       </div>
+      <button class="conn" id="connBtn" title="연결 상태"><i></i></button>
       <button class="icobtn" id="themeBtn" title="테마 전환"></button>
       <button class="who" id="whoBtn"><span class="ava" id="whoAva">?</span><span id="whoName">이름 설정</span></button>
       <a class="btn btn-pri" href="#/write">글쓰기</a>
@@ -445,6 +467,38 @@ window.ADMIN_EMAIL = "여기에-관리자-구글계정@gmail.com";
   <div class="rd-wrap" id="rdWrap"></div>
 </div>
 
+<!-- 이름 입력 게이트 -->
+<div class="gate" id="gate">
+  <div class="gate-card">
+    <div class="gate-mark">
+      <svg viewBox="0 0 32 32" width="34" height="34" aria-hidden="true">
+        <g fill="#fff">
+          <path d="M9.2 12.4 8.6 5.9c-.07-.86 1-1.33 1.6-.73l4.5 4.4z"/>
+          <path d="M22.8 12.4l.6-6.5c.07-.86-1-1.33-1.6-.73l-4.5 4.4z"/>
+          <ellipse cx="16" cy="18.9" rx="9.3" ry="8.3"/>
+        </g>
+        <g fill="#ff9ab8" opacity=".85">
+          <ellipse cx="9.8" cy="20.6" rx="1.7" ry="1.2"/>
+          <ellipse cx="22.2" cy="20.6" rx="1.7" ry="1.2"/>
+        </g>
+        <g fill="#4a37cf">
+          <ellipse cx="12.7" cy="17.9" rx="1.45" ry="1.7"/>
+          <ellipse cx="19.3" cy="17.9" rx="1.45" ry="1.7"/>
+        </g>
+        <path d="M14.2 21.4c.6.85 3 .85 3.6 0" fill="none" stroke="#4a37cf" stroke-width="1.25" stroke-linecap="round"/>
+        <g stroke="#fff" stroke-width="1.15" stroke-linecap="round" opacity=".9">
+          <path d="M2.9 17.9h3.2M3.4 21.3l3.1-.9M29.1 17.9h-3.2M28.6 21.3l-3.1-.9"/>
+        </g>
+      </svg>
+    </div>
+    <h1 id="gateTitle">사내문고</h1>
+    <p>이름만 남기면 바로 읽을 수 있습니다.<br>가입도, 비밀번호도 없습니다.</p>
+    <input class="inp" id="gateName" placeholder="이름 또는 별명" maxlength="20" autocomplete="off">
+    <button class="btn btn-pri btn-lg" id="gateGo">들어가기</button>
+    <button class="gate-sub" id="gateLogin">작가로 로그인</button>
+  </div>
+</div>
+
 <!-- 모달 -->
 <div class="ovl" id="ovl"><div class="modal" id="modal"></div></div>
 <div class="toast" id="toast"></div>
@@ -492,6 +546,19 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
 };
 
+function authMsg(code){
+  return ({
+    'auth/invalid-email':'이메일 형식이 올바르지 않습니다',
+    'auth/user-not-found':'등록되지 않은 계정입니다. 관리자에게 계정 생성을 요청하세요',
+    'auth/wrong-password':'비밀번호가 맞지 않습니다',
+    'auth/invalid-credential':'이메일 또는 비밀번호가 맞지 않습니다',
+    'auth/too-many-requests':'시도가 많아 잠시 막혔습니다. 몇 분 뒤 다시 해 주세요',
+    'auth/user-disabled':'사용 중지된 계정입니다',
+    'auth/network-request-failed':'네트워크 연결을 확인해 주세요',
+    'auth/unauthorized-domain':'이 주소가 Firebase 승인된 도메인에 없습니다',
+    'auth/operation-not-allowed':'Firebase 콘솔에서 이메일/비밀번호 로그인을 켜 주세요'
+  })[code] || '로그인에 실패했습니다';
+}
 function permErr(e){
   console.error(e);
   toast(e && e.code==='permission-denied'
@@ -531,8 +598,13 @@ const Store = {
   onSeries(cb){
     if(this.mode==='cloud'){
       this.db.collection('novel_series').onSnapshot(snap=>{
+        S.conn.ok=true; S.conn.err=null; S.conn.lastSync=now(); renderConn();
         cb(snap.docs.map(d=>Object.assign({id:d.id}, d.data())));
-      }, err=>{ console.error(err); toast('데이터를 불러오지 못했습니다'); });
+      }, err=>{
+        console.error(err);
+        S.conn.ok=false; S.conn.err=(err.code||'')+' '+(err.message||''); renderConn();
+        toast('데이터를 불러오지 못했습니다');
+      });
     }else{
       this._seriesCb = cb;
       cb(Object.values(this._local().series));
@@ -636,6 +708,14 @@ const Store = {
       toast(e.code==='auth/unauthorized-domain' ? '이 주소가 Firebase 승인된 도메인에 없습니다' : '로그인에 실패했습니다');
     });
   },
+  signInEmail(email, pw){
+    if(!this.auth) return Promise.reject(new Error('no-auth'));
+    return this.auth.signInWithEmailAndPassword(email.trim(), pw);
+  },
+  resetPw(email){
+    if(!this.auth) return Promise.reject(new Error('no-auth'));
+    return this.auth.sendPasswordResetEmail(email.trim());
+  },
   signOut(){ if(this.auth) this.auth.signOut(); },
 
   /* --- 작가 명단 --- */
@@ -652,6 +732,22 @@ const Store = {
   },
   async delAuthor(email){
     await this.db.collection('novel_authors').doc(String(email).toLowerCase()).delete();
+  },
+
+  async touchReader(name){
+    if(this.mode!=='cloud') return;
+    const id = String(name).trim().slice(0,20).replace(/[\/\.#\[\]]/g,'_');
+    if(!id) return;
+    try{
+      await this.db.collection('novel_readers').doc(id).set({
+        name:String(name).trim().slice(0,20), lastSeen:now()
+      }, {merge:true});
+    }catch(e){ /* 규칙이 막아도 읽기에는 지장 없음 */ }
+  },
+  watchReaders(cb){
+    if(this.mode!=='cloud'){ cb([]); return; }
+    this.db.collection('novel_readers').onSnapshot(
+      snap=> cb(snap.docs.map(d=>Object.assign({id:d.id}, d.data()))), ()=>cb([]));
   },
 
   watchConfig(cb){
@@ -686,7 +782,8 @@ const S = {
   series:[], eps:{}, cat:'전체', sort:'update', q:'',
   hero:0, heroTimer:null, reader:null, batch:[],
   cats: DEFAULT_CATS.slice(), siteName: DEFAULT_NAME,
-  user:null, authors:[], authReady:false
+  user:null, authors:[], authReady:false,
+  conn:{ok:false, err:null, lastSync:0}, readers:[]
 };
 const Me   = { get name(){ return LS.get('mg_me',''); }, set name(v){ LS.set('mg_me',v); } };
 const Read = {
@@ -1170,13 +1267,109 @@ function applyPerm(){
   const on = canWrite();
   $$('.hdr-act .btn-pri, .fab').forEach(el=> el.style.display = on? '' : 'none');
   $('#rdEditBtn').style.display = on? '' : 'none';
-  renderWho(); renderGnb();
+  renderWho(); renderGnb(); renderConn();
 }
 function applyConfig(){
   $('#siteName').textContent = S.siteName;
   document.title = S.siteName;
   renderGnb();
 }
+function openLoginModal(){
+  $('#modal').innerHTML = `
+    <div class="modal-hd"><h3>로그인</h3>
+      <button class="icobtn" style="margin-left:auto" data-close>✕</button></div>
+    <div class="modal-bd">
+      <div class="f"><label>이메일</label>
+        <input class="inp" id="lEmail" type="email" autocomplete="username" placeholder="관리자가 만들어 준 계정"></div>
+      <div class="f"><label>비밀번호</label>
+        <input class="inp" id="lPw" type="password" autocomplete="current-password" placeholder="비밀번호"></div>
+      <div id="lErr" class="hint" style="color:var(--danger);min-height:16px"></div>
+      ${window.ENABLE_GOOGLE_LOGIN? `<button class="btn btn-line" id="lGoogle" style="width:100%;margin-top:6px">구글 계정으로 로그인</button>`:''}
+      <div class="hint" style="margin-top:12px">계정은 관리자가 만들어 드립니다. 로그인 없이도 모든 작품을 읽을 수 있습니다.</div>
+      <button class="btn btn-soft" id="lReset" style="margin-top:8px">비밀번호 재설정 메일 보내기</button>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-line" data-close>취소</button>
+      <button class="btn btn-pri" id="lGo">로그인</button>
+    </div>`;
+  $('#ovl').classList.add('on');
+  setTimeout(()=>$('#lEmail').focus(), 60);
+  const err = m => $('#lErr').textContent = m;
+  const go = async ()=>{
+    const em=$('#lEmail').value.trim(), pw=$('#lPw').value;
+    if(!em || !pw){ err('이메일과 비밀번호를 모두 입력해 주세요'); return; }
+    $('#lGo').disabled=true; err('');
+    try{ await Store.signInEmail(em, pw); closeModal(); toast('로그인했습니다'); }
+    catch(e){ console.error(e); err(authMsg(e.code)); $('#lGo').disabled=false; }
+  };
+  $('#lGo').onclick = go;
+  $('#lPw').onkeydown = e=>{ if(e.key==='Enter') go(); };
+  $('#lEmail').onkeydown = e=>{ if(e.key==='Enter') $('#lPw').focus(); };
+  $('#lReset').onclick = async ()=>{
+    const em=$('#lEmail').value.trim();
+    if(!em){ err('먼저 이메일을 입력해 주세요'); return; }
+    try{ await Store.resetPw(em); toast('재설정 메일을 보냈습니다'); }
+    catch(e){ err(authMsg(e.code)); }
+  };
+  if($('#lGoogle')) $('#lGoogle').onclick = ()=>{ Store.signIn(); closeModal(); };
+}
+
+/* 연결 상태 */
+function showGate(force){
+  const g=$('#gate');
+  $('#gateTitle').textContent = S.siteName;
+  if(!force && Me.name){ g.classList.remove('on'); document.body.style.overflow=''; return; }
+  g.classList.add('on');
+  document.body.style.overflow='hidden';
+  const inp=$('#gateName');
+  inp.value = Me.name||'';
+  setTimeout(()=>inp.focus(), 80);
+}
+function enterSite(){
+  const n=$('#gateName').value.trim();
+  if(!n){ $('#gateName').focus(); toast('이름을 입력해 주세요'); return; }
+  Me.name=n;
+  Store.touchReader(n);
+  $('#gate').classList.remove('on');
+  document.body.style.overflow='';
+  renderWho();
+  toast(n+'님, 어서 오세요');
+}
+function renderConn(){
+  const el=$('#connBtn'); if(!el) return;
+  const cloud = Store.mode==='cloud';
+  const ok = cloud && S.conn.ok;
+  el.querySelector('i').style.background = cloud? (ok? '#22c07a' : (S.conn.err? 'var(--danger)':'var(--gold)')) : 'var(--tx-3)';
+  el.title = cloud? (ok? 'Firestore 연결됨' : (S.conn.err? '연결 오류':'연결 중…')) : '데모 모드 (이 브라우저에만 저장)';
+}
+function openStatusModal(){
+  const cloud = Store.mode==='cloud';
+  const cfg = window.FIREBASE_CONFIG||{};
+  const row = (k,v)=> `<div class="batch-row"><span class="nm" style="color:var(--tx-3)">${k}</span><span>${v}</span></div>`;
+  const state = !cloud ? '<b style="color:var(--gold)">데모 모드</b>'
+    : S.conn.ok ? '<b style="color:#22c07a">연결됨</b>'
+    : S.conn.err ? '<b style="color:var(--danger)">연결 오류</b>' : '연결 중…';
+  $('#modal').innerHTML = `
+    <div class="modal-hd"><h3>연결 상태</h3>
+      <button class="icobtn" style="margin-left:auto" data-close>✕</button></div>
+    <div class="modal-bd">
+      <div class="batch">
+        ${row('저장 방식', state)}
+        ${row('프로젝트', cloud? esc(cfg.projectId||'—') : '—')}
+        ${row('마지막 동기화', S.conn.lastSync? ago(S.conn.lastSync) : '—')}
+        ${row('로그인', S.user? esc(S.user.email) : '안 함')}
+        ${row('권한', isAdmin()? '관리자 (모든 권한)' : (canWrite()? '작가 (글쓰기 가능)' : '읽기 전용'))}
+        ${row('등록된 작가', cloud? S.authors.length+'명' : '—')}
+        ${row('작품 수', S.series.length+'편')}
+        ${cloud? row('다녀간 독자', S.readers.length+'명') : ''}
+      </div>
+      ${S.conn.err? `<div class="hint" style="color:var(--danger);margin-top:10px">${esc(S.conn.err)}</div>`:''}
+      ${!cloud? `<div class="hint" style="margin-top:10px">index.html 위쪽 FIREBASE_CONFIG에 콘솔 값을 넣으면 팀원과 공유되는 모드로 바뀝니다.</div>`:''}
+    </div>
+    <div class="modal-ft"><button class="btn btn-line" data-close>닫기</button></div>`;
+  $('#ovl').classList.add('on');
+}
+
 function openAccountModal(){
   const u=S.user;
   $('#modal').innerHTML = `
@@ -1184,20 +1377,24 @@ function openAccountModal(){
       <button class="icobtn" style="margin-left:auto" data-close>✕</button></div>
     <div class="modal-bd">
       ${u? `<div class="hint" style="margin:-4px 0 14px">${esc(u.email)} ${isAdmin()?'· 관리자':(canWrite()?'· 작가':'· 읽기 전용')}</div>`:''}
-      <div class="f"><label>필명 <span class="opt">(작품에 표시되는 이름)</span></label>
+      <div class="f"><label>이름 <span class="opt">(작품과 화면에 표시되는 이름)</span></label>
         <input class="inp" id="aName" value="${esc(Me.name||(u? u.name:''))}" placeholder="예: 야근왕"></div>
       ${isAdmin() && Store.mode==='cloud'? `<button class="btn btn-line" id="aAuthors">작가 관리</button>`:''}
     </div>
     <div class="modal-ft">
       ${Store.mode==='cloud'? (u? `<button class="btn btn-danger" id="aOut">로그아웃</button>`
-                                 : `<button class="btn btn-pri" id="aIn">구글로 로그인</button>`):''}
+                                 : `<button class="btn btn-pri" id="aIn">로그인</button>`):''}
       <button class="btn btn-line" data-close>닫기</button>
       <button class="btn btn-pri" id="aSave">저장</button>
     </div>`;
   $('#ovl').classList.add('on');
-  $('#aSave').onclick = ()=>{ Me.name=$('#aName').value.trim(); renderWho(); closeModal(); toast('필명을 저장했습니다'); };
+  $('#aSave').onclick = ()=>{
+    const v=$('#aName').value.trim();
+    if(!v){ toast('이름을 입력해 주세요'); return; }
+    Me.name=v; Store.touchReader(v); renderWho(); closeModal(); toast('이름을 저장했습니다');
+  };
   if($('#aOut')) $('#aOut').onclick = ()=>{ Store.signOut(); closeModal(); };
-  if($('#aIn'))  $('#aIn').onclick  = ()=>{ Store.signIn(); closeModal(); };
+  if($('#aIn'))  $('#aIn').onclick  = ()=> openLoginModal();
   if($('#aAuthors')) $('#aAuthors').onclick = openAuthorsModal;
 }
 function openAuthorsModal(){
@@ -1208,11 +1405,11 @@ function openAuthorsModal(){
     <div class="modal-bd">
       <div class="f"><label>작가 추가</label>
         <div class="f2" style="margin-bottom:8px">
-          <input class="inp" id="nEmail" placeholder="구글 계정 이메일" autocomplete="off">
+          <input class="inp" id="nEmail" placeholder="계정 이메일" autocomplete="off">
           <input class="inp" id="nName" placeholder="이름 (선택)" autocomplete="off">
         </div>
         <button class="btn btn-pri" id="nAdd">추가</button>
-        <div class="hint">여기에 등록된 구글 계정만 작품과 회차를 올리고 고칠 수 있습니다. 읽기는 누구나 됩니다.</div>
+        <div class="hint">Firebase 콘솔 <b>Authentication → 사용자</b>에서 계정을 만든 뒤, 같은 이메일을 여기에 추가하세요. 명단에 있는 계정만 글을 올리고 고칠 수 있습니다.</div>
       </div>
       <div class="f"><label>등록된 작가 ${S.authors.length}명</label>
         ${S.authors.length? S.authors.map(a=>`
@@ -1267,10 +1464,10 @@ function viewWrite(params){
   if(!canWrite()){
     $('#view').innerHTML = `<div class="wr"><div class="empty">
       <b>작가로 등록된 계정만 글을 올릴 수 있습니다</b>
-      ${S.user? esc(S.user.email)+' 계정은 아직 작가 명단에 없습니다. 관리자에게 등록을 요청해 주세요.' : '먼저 구글 계정으로 로그인해 주세요.'}
+      ${S.user? esc(S.user.email)+' 계정은 아직 작가 명단에 없습니다. 관리자에게 등록을 요청해 주세요.' : '먼저 로그인해 주세요.'}
       <div style="margin-top:18px">${S.user? '<a class="btn btn-line btn-lg" href="#/">홈으로</a>' : '<button class="btn btn-pri btn-lg" id="goLogin">구글로 로그인</button>'}</div>
     </div></div>`;
-    const gl=$('#goLogin'); if(gl) gl.onclick=()=>Store.signIn();
+    const gl=$('#goLogin'); if(gl) gl.onclick=()=>openLoginModal();
     return;
   }
   const sid = params.get('s')||'';
@@ -1500,9 +1697,17 @@ document.addEventListener('click', e=>{
 });
 $('#q').oninput = e=>{ S.q=e.target.value.trim(); if(location.hash==='#/'||location.hash==='') viewHome(); else location.hash='#/'; };
 $('#whoBtn').onclick = ()=>{
-  if(Store.mode==='cloud' && !S.user){ Store.signIn(); return; }
+  if(Store.mode==='cloud' && !S.user){ openLoginModal(); return; }
   openAccountModal();
 };
+$('#gateGo').onclick = enterSite;
+$('#gateName').onkeydown = e=>{ if(e.key==='Enter') enterSite(); };
+$('#gateLogin').onclick = ()=>{
+  if(Store.mode!=='cloud'){ toast('Firebase를 연결하면 작가 로그인을 쓸 수 있습니다'); return; }
+  $('#gate').classList.remove('on'); document.body.style.overflow='';
+  openLoginModal();
+};
+$('#connBtn').onclick = openStatusModal;
 $('#themeBtn').onclick = ()=>{
   const cur = LS.get('mg_theme','auto');
   setTheme(cur==='dark'?'light':cur==='light'?'auto':'dark');
@@ -1571,7 +1776,7 @@ function seedDemo(){
 }
 function modeBar(){
   const el=$('#modeBar');
-  if(Store.mode==='cloud'){ el.innerHTML=''; return; }
+  if(Store.mode==='cloud'){ el.innerHTML=''; renderConn(); return; }
   el.innerHTML = `<div class="mode-bar warn">데모 모드로 실행 중입니다 · 내용이 이 브라우저에만 저장됩니다. 파일 위쪽 FIREBASE_CONFIG에 설정을 넣으면 팀원과 공유됩니다.</div>`;
 }
 function boot(){
@@ -1583,9 +1788,11 @@ function boot(){
   Store.initAuth(u=>{
     S.user=u; S.authReady=true;
     if(u && !Me.name) Me.name=u.name;
+    if(u){ $('#gate').classList.remove('on'); document.body.style.overflow=''; }
     applyPerm(); route();
   });
   Store.watchAuthors(list=>{ S.authors=list; applyPerm(); if(S._authorsDraw) S._authorsDraw(); });
+  Store.watchReaders(list=>{ S.readers=list; });
   Store.watchConfig(cfg=>{
     if(cfg){
       if(Array.isArray(cfg.cats) && cfg.cats.length) S.cats = cfg.cats;
@@ -1601,6 +1808,7 @@ function boot(){
   });
   applyPerm();
   route();
+  showGate(false);
 }
 boot();
 })();
