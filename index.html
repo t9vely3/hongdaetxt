@@ -333,11 +333,13 @@ textarea.inp{resize:vertical;min-height:96px;line-height:1.7}
 }
 </style>
 <!-- ══════════════════════════════════════════════════════════════
-     Firebase 설정 : 아래 값을 콘솔에서 복사한 것으로 바꾸세요.
-     (Firebase 콘솔 → 프로젝트 설정 → 내 앱 → 웹 앱 → firebaseConfig)
+     1) Firebase 콘솔 → 프로젝트 설정 → 내 앱 → 웹 앱 → firebaseConfig 값을
+        아래에 그대로 붙여 넣으세요.
+     2) ADMIN_EMAIL 에는 관리자(작가를 임명하는 사람)의 구글 계정을 넣으세요.
      값을 바꾸지 않으면 이 브라우저에만 저장되는 데모 모드로 실행됩니다.
      ══════════════════════════════════════════════════════════════ -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 window.FIREBASE_CONFIG = {
@@ -348,6 +350,7 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "여기에-senderId",
   appId:             "여기에-appId"
 };
+window.ADMIN_EMAIL = "여기에-관리자-구글계정@gmail.com";
 </script>
 </head>
 <body>
@@ -489,6 +492,14 @@ const LS = {
   set(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
 };
 
+function permErr(e){
+  console.error(e);
+  toast(e && e.code==='permission-denied'
+    ? '쓰기 권한이 없습니다. 관리자에게 작가 등록을 요청하세요.'
+    : '저장하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
+}
+window.addEventListener('unhandledrejection', e=>{ e.preventDefault(); });
+
 let toastT;
 function toast(msg){
   const t=$('#toast'); t.textContent=msg; t.classList.add('on');
@@ -535,7 +546,7 @@ const Store = {
     if(!data.createdAt) data.createdAt = now();
     if(this.mode==='cloud'){
       const {id:_, ...body} = data;
-      await this.db.collection('novel_series').doc(id).set(body, {merge:true});
+      try{ await this.db.collection('novel_series').doc(id).set(body, {merge:true}); }catch(e){ permErr(e); throw e; }
     }else{
       const d=this._local(); d.series[id]=Object.assign(d.series[id]||{}, data); this._saveLocal(d); this._pushLocal();
     }
@@ -578,7 +589,7 @@ const Store = {
     data.chars = (data.body||'').length;
     if(this.mode==='cloud'){
       const {id:_, ...body} = data;
-      await this.db.collection('novel_series').doc(sid).collection('episodes').doc(id).set(body,{merge:true});
+      try{ await this.db.collection('novel_series').doc(sid).collection('episodes').doc(id).set(body,{merge:true}); }catch(e){ permErr(e); throw e; }
     }else{
       const d=this._local(); d.eps[sid]=d.eps[sid]||{}; d.eps[sid][id]=Object.assign(d.eps[sid][id]||{}, data);
       this._saveLocal(d); this._pushEps(sid);
@@ -609,6 +620,40 @@ const Store = {
       this._saveLocal(d); this._pushLocal(); this._pushEps(sid);
     }
   },
+  /* --- 인증 --- */
+  initAuth(cb){
+    if(this.mode!=='cloud' || !window.firebase || !firebase.auth){ cb(null); return; }
+    this.auth = firebase.auth();
+    this.auth.onAuthStateChanged(u=> cb(u? {
+      email:(u.email||'').toLowerCase(), name:u.displayName||u.email, photo:u.photoURL||''
+    } : null));
+  },
+  signIn(){
+    if(!this.auth){ toast('로그인을 쓸 수 없는 상태입니다'); return; }
+    const pv = new firebase.auth.GoogleAuthProvider();
+    this.auth.signInWithPopup(pv).catch(e=>{
+      console.error(e);
+      toast(e.code==='auth/unauthorized-domain' ? '이 주소가 Firebase 승인된 도메인에 없습니다' : '로그인에 실패했습니다');
+    });
+  },
+  signOut(){ if(this.auth) this.auth.signOut(); },
+
+  /* --- 작가 명단 --- */
+  watchAuthors(cb){
+    if(this.mode!=='cloud'){ cb([]); return; }
+    this.db.collection('novel_authors').onSnapshot(
+      snap=> cb(snap.docs.map(d=>Object.assign({id:d.id}, d.data()))),
+      e=>{ console.error(e); cb([]); });
+  },
+  async addAuthor(email, name){
+    const id = email.trim().toLowerCase();
+    await this.db.collection('novel_authors').doc(id)
+      .set({email:id, name:name||'', addedAt:now()}, {merge:true});
+  },
+  async delAuthor(email){
+    await this.db.collection('novel_authors').doc(String(email).toLowerCase()).delete();
+  },
+
   watchConfig(cb){
     if(this.mode==='cloud'){
       this.db.collection('novel_config').doc('site')
@@ -640,7 +685,8 @@ const Store = {
 const S = {
   series:[], eps:{}, cat:'전체', sort:'update', q:'',
   hero:0, heroTimer:null, reader:null, batch:[],
-  cats: DEFAULT_CATS.slice(), siteName: DEFAULT_NAME
+  cats: DEFAULT_CATS.slice(), siteName: DEFAULT_NAME,
+  user:null, authors:[], authReady:false
 };
 const Me   = { get name(){ return LS.get('mg_me',''); }, set name(v){ LS.set('mg_me',v); } };
 const Read = {
@@ -653,6 +699,17 @@ const Read = {
   liked(sid){ return LS.get('mg_like',[]).includes(sid); },
   toggleLike(sid){ let l=LS.get('mg_like',[]); const on=!l.includes(sid); l = on? l.concat(sid) : l.filter(x=>x!==sid); LS.set('mg_like',l); return on; }
 };
+
+function isAdmin(){
+  if(Store.mode!=='cloud') return true;
+  const admin = String(window.ADMIN_EMAIL||'').trim().toLowerCase();
+  return !!(S.user && admin && S.user.email===admin);
+}
+function canWrite(){
+  if(Store.mode!=='cloud') return true;
+  if(isAdmin()) return true;
+  return !!(S.user && S.authors.some(a=>a.email===S.user.email));
+}
 
 /* ══════════════════════════════════════════════════
    4. 커버 렌더링
@@ -714,8 +771,8 @@ function viewHome(){
   if(!S.series.length){
     v.innerHTML = `<div class="wrap"><div class="empty">
       <b>아직 올라온 작품이 없습니다</b>
-      첫 편을 올려 연재를 시작해 보세요.
-      <div style="margin-top:18px"><a class="btn btn-pri btn-lg" href="#/write">글쓰기</a></div>
+      ${canWrite()? '첫 편을 올려 연재를 시작해 보세요.' : '작가로 등록되면 여기에 글을 올릴 수 있습니다.'}
+      ${canWrite()? '<div style="margin-top:18px"><a class="btn btn-pri btn-lg" href="#/write">글쓰기</a></div>':''}
     </div></div>`;
     return;
   }
@@ -846,9 +903,10 @@ function viewSeries(id){
           <div class="sd-btns">
             <button class="btn btn-pri btn-lg" id="btnRead">${Read.last(id)?'이어 보기':'첫 화 보기'}</button>
             <button class="btn btn-line btn-lg" id="btnLike">${Read.liked(id)?'♥ 좋아요':'♡ 좋아요'}</button>
+            ${canWrite()? `
             <button class="btn btn-line btn-lg" data-go="#/write?s=${id}">＋ 회차 등록</button>
             <button class="btn btn-line btn-lg" id="btnEditS">작품 수정</button>
-            <button class="btn btn-line btn-lg" id="btnDelS">삭제</button>
+            <button class="btn btn-line btn-lg" id="btnDelS">삭제</button>`:''}
           </div>
         </div>
       </div>
@@ -863,8 +921,8 @@ function viewSeries(id){
   </div>`;
 
   $('#btnLike').onclick = async ()=>{ const on=Read.toggleLike(id); await Store.toggleLike(id,on); toast(on?'좋아요에 추가했습니다':'좋아요를 취소했습니다'); };
-  $('#btnEditS').onclick = ()=> openSeriesModal(s);
-  $('#btnDelS').onclick = async ()=>{
+  if($('#btnEditS')) $('#btnEditS').onclick = ()=> openSeriesModal(s);
+  if($('#btnDelS')) $('#btnDelS').onclick = async ()=>{
     if(!confirm(`'${s.title}' 작품과 모든 회차를 삭제합니다. 계속할까요?`)) return;
     await Store.delSeries(id); toast('삭제했습니다'); location.hash='#/';
   };
@@ -902,10 +960,10 @@ function renderEpList(sid){
         <div class="ep-tt">${esc(e.title||'제목 없음')}${readList.includes(e.id)?'<span class="ep-read">읽음</span>':''}</div>
         <div class="ep-mt">${esc(e.author||'익명')} · ${ago(e.createdAt)} · ${nf(e.chars||(e.body||'').length)}자 · 조회 ${nf(e.views)}</div>
       </div>
-      <div class="ep-act">
+      ${canWrite()? `<div class="ep-act">
         <button data-edit="${e.id}" title="수정"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M4 20h4L19 9a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20z"/></svg></button>
         <button data-del="${e.id}" title="삭제"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
-      </div>
+      </div>`:''}
     </div>`).join('');
   $$('#epList .ep-row').forEach(r=>{
     r.onclick = ev=>{
@@ -1108,12 +1166,79 @@ function openConfigModal(){
   draw();
   $('#ovl').classList.add('on');
 }
+function applyPerm(){
+  const on = canWrite();
+  $$('.hdr-act .btn-pri, .fab').forEach(el=> el.style.display = on? '' : 'none');
+  $('#rdEditBtn').style.display = on? '' : 'none';
+  renderWho(); renderGnb();
+}
 function applyConfig(){
   $('#siteName').textContent = S.siteName;
   document.title = S.siteName;
   renderGnb();
 }
-function closeModal(){ $('#ovl').classList.remove('on'); $('#modal').innerHTML=''; }
+function openAccountModal(){
+  const u=S.user;
+  $('#modal').innerHTML = `
+    <div class="modal-hd"><h3>내 계정</h3>
+      <button class="icobtn" style="margin-left:auto" data-close>✕</button></div>
+    <div class="modal-bd">
+      ${u? `<div class="hint" style="margin:-4px 0 14px">${esc(u.email)} ${isAdmin()?'· 관리자':(canWrite()?'· 작가':'· 읽기 전용')}</div>`:''}
+      <div class="f"><label>필명 <span class="opt">(작품에 표시되는 이름)</span></label>
+        <input class="inp" id="aName" value="${esc(Me.name||(u? u.name:''))}" placeholder="예: 야근왕"></div>
+      ${isAdmin() && Store.mode==='cloud'? `<button class="btn btn-line" id="aAuthors">작가 관리</button>`:''}
+    </div>
+    <div class="modal-ft">
+      ${Store.mode==='cloud'? (u? `<button class="btn btn-danger" id="aOut">로그아웃</button>`
+                                 : `<button class="btn btn-pri" id="aIn">구글로 로그인</button>`):''}
+      <button class="btn btn-line" data-close>닫기</button>
+      <button class="btn btn-pri" id="aSave">저장</button>
+    </div>`;
+  $('#ovl').classList.add('on');
+  $('#aSave').onclick = ()=>{ Me.name=$('#aName').value.trim(); renderWho(); closeModal(); toast('필명을 저장했습니다'); };
+  if($('#aOut')) $('#aOut').onclick = ()=>{ Store.signOut(); closeModal(); };
+  if($('#aIn'))  $('#aIn').onclick  = ()=>{ Store.signIn(); closeModal(); };
+  if($('#aAuthors')) $('#aAuthors').onclick = openAuthorsModal;
+}
+function openAuthorsModal(){
+  const draw = ()=>{
+    $('#modal').innerHTML = `
+    <div class="modal-hd"><h3>작가 관리</h3>
+      <button class="icobtn" style="margin-left:auto" data-close>✕</button></div>
+    <div class="modal-bd">
+      <div class="f"><label>작가 추가</label>
+        <div class="f2" style="margin-bottom:8px">
+          <input class="inp" id="nEmail" placeholder="구글 계정 이메일" autocomplete="off">
+          <input class="inp" id="nName" placeholder="이름 (선택)" autocomplete="off">
+        </div>
+        <button class="btn btn-pri" id="nAdd">추가</button>
+        <div class="hint">여기에 등록된 구글 계정만 작품과 회차를 올리고 고칠 수 있습니다. 읽기는 누구나 됩니다.</div>
+      </div>
+      <div class="f"><label>등록된 작가 ${S.authors.length}명</label>
+        ${S.authors.length? S.authors.map(a=>`
+          <div class="cat-row">
+            <div class="inp" style="background:none;border-color:var(--line-soft)">${esc(a.name? a.name+' · ':'')}${esc(a.email)}</div>
+            <button data-rmA="${esc(a.email)}" title="삭제">✕</button>
+          </div>`).join('') : '<div class="hint">아직 등록된 작가가 없습니다. 관리자 계정은 등록 없이도 글을 올릴 수 있습니다.</div>'}
+      </div>
+    </div>
+    <div class="modal-ft"><button class="btn btn-line" data-close>닫기</button></div>`;
+    $('#nAdd').onclick = async ()=>{
+      const em=$('#nEmail').value.trim();
+      if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ toast('이메일 형식을 확인해 주세요'); return; }
+      try{ await Store.addAuthor(em, $('#nName').value.trim()); toast('작가를 추가했습니다'); }
+      catch(e){ permErr(e); }
+    };
+    $$('#modal [data-rmA]').forEach(b=> b.onclick = async ()=>{
+      if(!confirm(b.dataset.rma+' 계정의 쓰기 권한을 뺄까요?')) return;
+      try{ await Store.delAuthor(b.dataset.rma); toast('삭제했습니다'); }catch(e){ permErr(e); }
+    });
+  };
+  S._authorsDraw = draw;
+  draw();
+  $('#ovl').classList.add('on');
+}
+function closeModal(){ S._authorsDraw=null; $('#ovl').classList.remove('on'); $('#modal').innerHTML=''; }
 function resizeImage(file, mw, mh){
   return new Promise((res,rej)=>{
     const fr=new FileReader();
@@ -1139,6 +1264,15 @@ function resizeImage(file, mw, mh){
    ══════════════════════════════════════════════════ */
 const DRAFT='mg_draft';
 function viewWrite(params){
+  if(!canWrite()){
+    $('#view').innerHTML = `<div class="wr"><div class="empty">
+      <b>작가로 등록된 계정만 글을 올릴 수 있습니다</b>
+      ${S.user? esc(S.user.email)+' 계정은 아직 작가 명단에 없습니다. 관리자에게 등록을 요청해 주세요.' : '먼저 구글 계정으로 로그인해 주세요.'}
+      <div style="margin-top:18px">${S.user? '<a class="btn btn-line btn-lg" href="#/">홈으로</a>' : '<button class="btn btn-pri btn-lg" id="goLogin">구글로 로그인</button>'}</div>
+    </div></div>`;
+    const gl=$('#goLogin'); if(gl) gl.onclick=()=>Store.signIn();
+    return;
+  }
   const sid = params.get('s')||'';
   const eid = params.get('e')||'';
   const v=$('#view');
@@ -1297,12 +1431,17 @@ function renderBatch(){
 function renderGnb(){
   $('#gnb').innerHTML = `<div class="gnb-scroll">`
     + ['전체'].concat(S.cats).map(c=>`<button data-gcat="${esc(c)}" class="${S.cat===c?'on':''}">${esc(c)}</button>`).join('')
-    + `</div><button class="gear" id="gnbEdit" title="메뉴·사이트 이름 편집">메뉴 편집</button>`;
+    + `</div>` + (isAdmin()? `<button class="gear" id="gnbEdit" title="메뉴·사이트 이름 편집">메뉴 편집</button>`:'');
   $$('#gnb button[data-gcat]').forEach(b=> b.onclick=()=>{ S.cat=b.dataset.gcat; renderGnb(); if(location.hash==='#/'||location.hash===''){ viewHome(); } else location.hash='#/'; });
-  $('#gnbEdit').onclick = openConfigModal;
+  if($('#gnbEdit')) $('#gnbEdit').onclick = openConfigModal;
 }
 function renderWho(){
-  const n=Me.name||'';
+  if(Store.mode==='cloud' && !S.user){
+    $('#whoName').textContent = '로그인';
+    const a=$('#whoAva'); a.textContent='→'; a.style.background='var(--tx-3)';
+    return;
+  }
+  const n = Me.name || (S.user? S.user.name : '');
   $('#whoName').textContent = n||'이름 설정';
   const a=$('#whoAva');
   a.textContent = n? n.slice(-2) : '?';
@@ -1361,8 +1500,8 @@ document.addEventListener('click', e=>{
 });
 $('#q').oninput = e=>{ S.q=e.target.value.trim(); if(location.hash==='#/'||location.hash==='') viewHome(); else location.hash='#/'; };
 $('#whoBtn').onclick = ()=>{
-  const n = prompt('사이트에서 사용할 이름을 입력하세요', Me.name||'');
-  if(n!==null){ Me.name=n.trim(); renderWho(); toast('이름을 저장했습니다'); }
+  if(Store.mode==='cloud' && !S.user){ Store.signIn(); return; }
+  openAccountModal();
 };
 $('#themeBtn').onclick = ()=>{
   const cur = LS.get('mg_theme','auto');
@@ -1441,6 +1580,12 @@ function boot(){
   Store.init();
   if(Store.mode==='local') seedDemo();
   modeBar();
+  Store.initAuth(u=>{
+    S.user=u; S.authReady=true;
+    if(u && !Me.name) Me.name=u.name;
+    applyPerm(); route();
+  });
+  Store.watchAuthors(list=>{ S.authors=list; applyPerm(); if(S._authorsDraw) S._authorsDraw(); });
   Store.watchConfig(cfg=>{
     if(cfg){
       if(Array.isArray(cfg.cats) && cfg.cats.length) S.cats = cfg.cats;
@@ -1454,6 +1599,7 @@ function boot(){
     if(h==='#/'||h==='') viewHome();
     else if(h.indexOf('#/series/')===0){ const id=h.slice(9).split('?')[0]; if(!$('#epList')) viewSeries(id); }
   });
+  applyPerm();
   route();
 }
 boot();
