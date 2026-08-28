@@ -297,6 +297,21 @@ textarea.inp{resize:vertical;min-height:96px;line-height:1.7}
 .batch-row .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .batch-row .sz{color:var(--tx-3);font-size:12px}
 
+/* ── 작가 뱃지 · 작가 관리 ─────────────────── */
+.badge{display:inline-block;font-size:10.5px;font-weight:800;line-height:1;padding:3px 6px;border-radius:5px;margin-right:5px;vertical-align:1px;letter-spacing:-.02em}
+.sd-by .badge,.hero-meta .badge{font-size:11px;padding:4px 7px}
+.au{border:1px solid var(--line);border-radius:11px;margin-bottom:8px;overflow:hidden;background:var(--surface)}
+.au.open{border-color:var(--accent)}
+.au-hd{display:grid;grid-template-columns:1fr auto;gap:2px 10px;padding:11px 13px;cursor:pointer;align-items:center}
+.au-hd:hover{background:var(--bg-soft)}
+.au-nm{font-weight:700;font-size:14px}
+.au-em{grid-column:1;font-size:12px;color:var(--tx-3)}
+.au-sc{grid-column:1;font-size:12px;color:var(--accent-tx);margin-top:2px}
+.au-ar{grid-row:1/4;grid-column:2;color:var(--tx-3);font-size:12px}
+.au-bd{padding:4px 13px 14px;border-top:1px solid var(--line-soft)}
+.chk{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--tx-2);cursor:pointer}
+.chk input{width:16px;height:16px;accent-color:var(--accent)}
+
 /* ── 이름 게이트 ──────────────────────────── */
 .gate{position:fixed;inset:0;z-index:300;background:var(--bg);display:none;align-items:center;justify-content:center;padding:24px}
 .gate.on{display:flex}
@@ -353,14 +368,28 @@ textarea.inp{resize:vertical;min-height:96px;line-height:1.7}
   .f2{grid-template-columns:1fr}
 }
 </style>
-<!-- ══════════════════════════════════════════════════════════════
-     Firebase 설정은 옆에 있는 firebase-config.js 파일에 들어 있습니다.
-     이 index.html 을 새 버전으로 갈아 끼워도 그 파일은 그대로 남습니다.
-     ══════════════════════════════════════════════════════════════ -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="firebase-config.js"></script>
+<!-- 설정 파일이 옆에 있으면 그걸 먼저 쓰고, 없으면 아래 값을 씁니다 -->
+<script src="firebase-config.js" onerror="void 0"></script>
+<script>
+(function(){
+  var baked = {
+    apiKey:            "AIzaSyBCGs8MWo5Bw8FDf5up9x5dmvN2_SWqXO4",
+    authDomain:        "hongdaetxt.firebaseapp.com",
+    projectId:         "hongdaetxt",
+    storageBucket:     "hongdaetxt.firebasestorage.app",
+    messagingSenderId: "1061365979954",
+    appId:             "1:1061365979954:web:013994478cd0849616552b"
+  };
+  var c = window.FIREBASE_CONFIG;
+  // 옆 파일이 없거나, 예시값이 남아 있으면 위 값을 쓴다
+  if(!c || !c.apiKey || /여기에/.test(String(c.apiKey)+String(c.projectId))) window.FIREBASE_CONFIG = baked;
+  if(!window.ADMIN_EMAIL || /여기에/.test(window.ADMIN_EMAIL)) window.ADMIN_EMAIL = "t9vely@naver.com";
+  if(typeof window.ENABLE_GOOGLE_LOGIN !== 'boolean') window.ENABLE_GOOGLE_LOGIN = false;
+})();
+</script>
 </head>
 <body>
 <div id="modeBar"></div>
@@ -726,10 +755,10 @@ const Store = {
       snap=> cb(snap.docs.map(d=>Object.assign({id:d.id}, d.data()))),
       e=>{ console.error(e); cb([]); });
   },
-  async addAuthor(email, name){
-    const id = email.trim().toLowerCase();
+  async addAuthor(email, data){
+    const id = String(email).trim().toLowerCase();
     await this.db.collection('novel_authors').doc(id)
-      .set({email:id, name:name||'', addedAt:now()}, {merge:true});
+      .set(Object.assign({email:id, addedAt:now()}, data||{}), {merge:true});
   },
   async delAuthor(email){
     await this.db.collection('novel_authors').doc(String(email).toLowerCase()).delete();
@@ -798,15 +827,56 @@ const Read = {
   toggleLike(sid){ let l=LS.get('mg_like',[]); const on=!l.includes(sid); l = on? l.concat(sid) : l.filter(x=>x!==sid); LS.set('mg_like',l); return on; }
 };
 
+const BADGES = {
+  violet:['#5b4bff','#ffffff'], gold:['#e8a020','#ffffff'], green:['#0ca678','#ffffff'],
+  blue:['#1c7ed6','#ffffff'], pink:['#d6336c','#ffffff'], gray:['#6b7280','#ffffff']
+};
 function isAdmin(){
   if(Store.mode!=='cloud') return true;
   const admin = String(window.ADMIN_EMAIL||'').trim().toLowerCase();
   return !!(S.user && admin && S.user.email===admin);
 }
+/* 지금 로그인한 사람의 작가 정보 */
+function myRec(){
+  if(!S.user) return null;
+  return S.authors.find(a=>a.email===S.user.email) || null;
+}
+/* 사이트에 글을 쓸 수 있는 사람인가 */
 function canWrite(){
   if(Store.mode!=='cloud') return true;
-  if(isAdmin()) return true;
-  return !!(S.user && S.authors.some(a=>a.email===S.user.email));
+  return isAdmin() || !!myRec();
+}
+/* 이 분류에 글을 쓸 수 있는가 (담당 분류가 비어 있으면 전체 허용) */
+function canWriteCat(cat){
+  if(Store.mode!=='cloud' || isAdmin()) return true;
+  const r=myRec(); if(!r) return false;
+  const list=r.cats||[];
+  return !list.length || list.includes(cat);
+}
+/* 이 작품을 고칠 수 있는가 */
+function canEditSeries(s){
+  if(Store.mode!=='cloud' || isAdmin()) return true;
+  const r=myRec(); if(!r || !s) return false;
+  const mine = s.authorEmail? (s.authorEmail===S.user.email) : (s.author===r.name);
+  return (mine || r.editOthers===true) && canWriteCat(s.category);
+}
+/* 내가 쓸 수 있는 분류 목록 */
+function myCats(){
+  if(Store.mode!=='cloud' || isAdmin()) return S.cats.slice();
+  const r=myRec(); const list=(r&&r.cats)||[];
+  return list.length? S.cats.filter(c=>list.includes(c)) : S.cats.slice();
+}
+/* 작가 뱃지 */
+function recOf(obj){
+  if(!obj) return null;
+  return S.authors.find(a=> (obj.authorEmail && a.email===obj.authorEmail))
+      || S.authors.find(a=> a.name && a.name===obj.author) || null;
+}
+function badgeHTML(obj){
+  const r=recOf(obj);
+  if(!r || !r.badge) return '';
+  const c=BADGES[r.badgeColor||'violet']||BADGES.violet;
+  return `<span class="badge" style="background:${c[0]};color:${c[1]}">${esc(r.badge)}</span>`;
 }
 
 /* ══════════════════════════════════════════════════
@@ -828,7 +898,7 @@ function cardHTML(s){
       ${isNew(upd)?'<span class="cv-up">UP</span>':''}
     </div>
     <div class="card-tt">${esc(s.title||'제목 없음')}</div>
-    <div class="card-mt"><span>${esc(s.author||'익명')}</span><span>·</span><span>${s.epCount||0}화</span></div>
+    <div class="card-mt"><span>${badgeHTML(s)}${esc(s.author||'익명')}</span><span>·</span><span>${s.epCount||0}화</span></div>
     <div class="card-mt"><span>조회 ${nf(s.views)}</span><span>·</span><span>${ago(upd)}</span></div>
   </div>`;
 }
@@ -930,7 +1000,7 @@ function rankHTML(s,i){
     <div class="rank-cv">${coverHTML(s)}</div>
     <div class="rank-body">
       <div class="rank-tt">${esc(s.title||'제목 없음')}</div>
-      <div class="rank-mt">${esc(s.author||'익명')} · ${s.epCount||0}화 · 조회 ${nf(s.views)}</div>
+      <div class="rank-mt">${badgeHTML(s)}${esc(s.author||'익명')} · ${s.epCount||0}화 · 조회 ${nf(s.views)}</div>
     </div>
   </div>`;
 }
@@ -946,7 +1016,7 @@ function heroHTML(list){
       <div class="hero-txt">
         <span class="hero-badge">오늘의 추천 · ${esc(s.category||'미분류')}</span>
         <div class="hero-title">${esc(s.title||'제목 없음')}</div>
-        <div class="hero-meta">${esc(s.author||'익명')} · 총 ${s.epCount||0}화 · 조회 ${nf(s.views)} · ${ago(s.lastEpAt||s.updatedAt)}</div>
+        <div class="hero-meta">${badgeHTML(s)}${esc(s.author||'익명')} · 총 ${s.epCount||0}화 · 조회 ${nf(s.views)} · ${ago(s.lastEpAt||s.updatedAt)}</div>
         <div class="hero-sum">${esc(s.summary||'소개가 아직 없습니다.')}</div>
         <div class="hero-btns">
           <button class="btn btn-pri btn-lg" data-go="#/series/${s.id}">작품 보기</button>
@@ -990,7 +1060,7 @@ function viewSeries(id){
         <div class="sd-info">
           <div class="sd-cat">${esc(s.category||'미분류')}</div>
           <div class="sd-title">${esc(s.title||'제목 없음')}</div>
-          <div class="sd-by">${esc(s.author||'익명')}</div>
+          <div class="sd-by">${badgeHTML(s)}${esc(s.author||'익명')}</div>
           <div class="sd-stats">
             <div class="sd-stat"><b id="sdEps">${s.epCount||0}</b><span>회차</span></div>
             <div class="sd-stat"><b>${nf(s.views)}</b><span>조회</span></div>
@@ -1001,7 +1071,7 @@ function viewSeries(id){
           <div class="sd-btns">
             <button class="btn btn-pri btn-lg" id="btnRead">${Read.last(id)?'이어 보기':'첫 화 보기'}</button>
             <button class="btn btn-line btn-lg" id="btnLike">${Read.liked(id)?'♥ 좋아요':'♡ 좋아요'}</button>
-            ${canWrite()? `
+            ${canEditSeries(s)? `
             <button class="btn btn-line btn-lg" data-go="#/write?s=${id}">＋ 회차 등록</button>
             <button class="btn btn-line btn-lg" id="btnEditS">작품 수정</button>
             <button class="btn btn-line btn-lg" id="btnDelS">삭제</button>`:''}
@@ -1056,9 +1126,9 @@ function renderEpList(sid){
       <div class="ep-no">${e.no||'-'}화</div>
       <div class="ep-body">
         <div class="ep-tt">${esc(e.title||'제목 없음')}${readList.includes(e.id)?'<span class="ep-read">읽음</span>':''}</div>
-        <div class="ep-mt">${esc(e.author||'익명')} · ${ago(e.createdAt)} · ${nf(e.chars||(e.body||'').length)}자 · 조회 ${nf(e.views)}</div>
+        <div class="ep-mt">${badgeHTML(e)}${esc(e.author||'익명')} · ${ago(e.createdAt)} · ${nf(e.chars||(e.body||'').length)}자 · 조회 ${nf(e.views)}</div>
       </div>
-      ${canWrite()? `<div class="ep-act">
+      ${canEditSeries(S.series.find(x=>x.id===sid))? `<div class="ep-act">
         <button data-edit="${e.id}" title="수정"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M4 20h4L19 9a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20z"/></svg></button>
         <button data-del="${e.id}" title="삭제"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M5 7h14M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
       </div>`:''}
@@ -1110,7 +1180,7 @@ async function openReader(sid, eid){
   $('#rdWrap').innerHTML = `
     <div class="rd-ep-no">${esc(s.title||'')} · ${e.no||''}화</div>
     <h1 class="rd-tt">${esc(e.title||'제목 없음')}</h1>
-    <div class="rd-mt">${esc(e.author||'익명')} · ${ago(e.createdAt)} · ${nf(e.chars||(e.body||'').length)}자</div>
+    <div class="rd-mt">${badgeHTML(e)}${esc(e.author||'익명')} · ${ago(e.createdAt)} · ${nf(e.chars||(e.body||'').length)}자</div>
     <div class="rd-body" id="rdBody">${esc(e.body||'')}</div>
     <div class="rd-nav">
       <button class="btn btn-line btn-lg" id="rdPrev" ${idx<=0?'disabled':''}>‹ 이전 화</button>
@@ -1198,6 +1268,7 @@ function openSeriesModal(s){
       summary: $('#mSum').value.trim(),
       tags: $('#mTags').value.split(',').map(t=>t.trim()).filter(Boolean),
       cover: tmpCover||null, grad: tmpGrad,
+      authorEmail: s.authorEmail || (S.user? S.user.email : ''),
       views: s.views||0, likes: s.likes||0, epCount: s.epCount||0
     };
     const id = await Store.saveSeries(obj);
@@ -1206,7 +1277,7 @@ function openSeriesModal(s){
   };
 }
 function catOptions(cur){
-  const list = S.cats.slice();
+  const list = myCats();
   if(cur && !list.includes(cur)) list.unshift(cur);
   return list.map(c=>`<option ${cur===c?'selected':''}>${esc(c)}</option>`).join('');
 }
@@ -1400,7 +1471,42 @@ function openAccountModal(){
   if($('#aAuthors')) $('#aAuthors').onclick = openAuthorsModal;
 }
 function openAuthorsModal(){
+  let open = null;   // 펼쳐 놓은 작가 이메일
   const draw = ()=>{
+    const rows = S.authors.map(x=>{
+      const cats = x.cats||[];
+      const c = BADGES[x.badgeColor||'violet']||BADGES.violet;
+      const isOpen = open===x.email;
+      return `<div class="au ${isOpen?'open':''}">
+        <div class="au-hd" data-open="${esc(x.email)}">
+          <div class="au-nm">${x.badge? `<span class="badge" style="background:${c[0]};color:${c[1]}">${esc(x.badge)}</span>`:''}${esc(x.name||x.email.split('@')[0])}</div>
+          <div class="au-em">${esc(x.email)}</div>
+          <div class="au-sc">${cats.length? esc(cats.join(', ')) : '전체 분류'}${x.editOthers? ' · 남의 글 수정' : ''}</div>
+          <span class="au-ar">${isOpen?'▴':'▾'}</span>
+        </div>
+        ${isOpen? `<div class="au-bd">
+          <div class="f2">
+            <div class="f"><label>표시 이름</label><input class="inp" id="eName" value="${esc(x.name||'')}" placeholder="필명"></div>
+            <div class="f"><label>뱃지 문구 <span class="opt">(비우면 없음)</span></label><input class="inp" id="eBadge" value="${esc(x.badge||'')}" placeholder="공식작가" maxlength="6"></div>
+          </div>
+          <div class="f"><label>뱃지 색</label>
+            <div class="pal" id="eColor">${Object.keys(BADGES).map(k=>`<button data-c="${k}" class="${(x.badgeColor||'violet')===k?'on':''}" style="background:${BADGES[k][0]}"></button>`).join('')}</div>
+          </div>
+          <div class="f"><label>글을 쓸 수 있는 게시판 <span class="opt">(아무것도 안 고르면 전체)</span></label>
+            <div class="chips" id="eCats" style="margin-bottom:0">
+              ${S.cats.map(c=>`<button class="chip ${cats.includes(c)?'on':''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+            </div>
+          </div>
+          <label class="chk"><input type="checkbox" id="eEdit" ${x.editOthers?'checked':''}>
+            <span>다른 사람 글도 수정·삭제할 수 있게 하기</span></label>
+          <div style="display:flex;gap:8px;margin-top:14px">
+            <button class="btn btn-pri" data-save="${esc(x.email)}">저장</button>
+            <button class="btn btn-danger" data-rma="${esc(x.email)}">작가에서 빼기</button>
+          </div>
+        </div>`:''}
+      </div>`;
+    }).join('');
+
     $('#modal').innerHTML = `
     <div class="modal-hd"><h3>작가 관리</h3>
       <button class="icobtn" style="margin-left:auto" data-close>✕</button></div>
@@ -1408,29 +1514,48 @@ function openAuthorsModal(){
       <div class="f"><label>작가 추가</label>
         <div class="f2" style="margin-bottom:8px">
           <input class="inp" id="nEmail" placeholder="계정 이메일" autocomplete="off">
-          <input class="inp" id="nName" placeholder="이름 (선택)" autocomplete="off">
+          <input class="inp" id="nName" placeholder="필명 (선택)" autocomplete="off">
         </div>
         <button class="btn btn-pri" id="nAdd">추가</button>
-        <div class="hint">Firebase 콘솔 <b>Authentication → 사용자</b>에서 계정을 만든 뒤, 같은 이메일을 여기에 추가하세요. 명단에 있는 계정만 글을 올리고 고칠 수 있습니다.</div>
+        <div class="hint">Firebase 콘솔 <b>Authentication → 사용자</b>에서 계정을 만든 뒤, 같은 이메일을 여기에 추가하세요. 추가한 다음 이름을 눌러 뱃지와 게시판 권한을 정합니다.</div>
       </div>
       <div class="f"><label>등록된 작가 ${S.authors.length}명</label>
-        ${S.authors.length? S.authors.map(a=>`
-          <div class="cat-row">
-            <div class="inp" style="background:none;border-color:var(--line-soft)">${esc(a.name? a.name+' · ':'')}${esc(a.email)}</div>
-            <button data-rmA="${esc(a.email)}" title="삭제">✕</button>
-          </div>`).join('') : '<div class="hint">아직 등록된 작가가 없습니다. 관리자 계정은 등록 없이도 글을 올릴 수 있습니다.</div>'}
+        ${S.authors.length? rows : '<div class="hint">아직 없습니다. 관리자 계정은 등록 없이도 모든 글을 쓸 수 있습니다.</div>'}
       </div>
     </div>
     <div class="modal-ft"><button class="btn btn-line" data-close>닫기</button></div>`;
+
     $('#nAdd').onclick = async ()=>{
       const em=$('#nEmail').value.trim();
       if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ toast('이메일 형식을 확인해 주세요'); return; }
-      try{ await Store.addAuthor(em, $('#nName').value.trim()); toast('작가를 추가했습니다'); }
-      catch(e){ permErr(e); }
+      try{
+        await Store.addAuthor(em, {name:$('#nName').value.trim(), badge:'', badgeColor:'violet', cats:[], editOthers:false});
+        open = em.toLowerCase(); toast('작가를 추가했습니다');
+      }catch(e){ permErr(e); }
     };
-    $$('#modal [data-rmA]').forEach(b=> b.onclick = async ()=>{
-      if(!confirm(b.dataset.rma+' 계정의 쓰기 권한을 뺄까요?')) return;
-      try{ await Store.delAuthor(b.dataset.rma); toast('삭제했습니다'); }catch(e){ permErr(e); }
+    $$('#modal [data-open]').forEach(el=> el.onclick=()=>{
+      open = (open===el.dataset.open)? null : el.dataset.open; draw();
+    });
+    $$('#modal [data-c]').forEach(btn=> btn.onclick=()=>{
+      $$('#eColor button').forEach(x=>x.classList.toggle('on', x===btn));
+    });
+    $$('#eCats .chip').forEach(btn=> btn.onclick=()=> btn.classList.toggle('on'));
+    $$('#modal [data-save]').forEach(btn=> btn.onclick=async ()=>{
+      const color = ($('#eColor .on')||{}).dataset ? $('#eColor .on').dataset.c : 'violet';
+      const cats = $$('#eCats .chip.on').map(x=>x.dataset.cat);
+      try{
+        await Store.addAuthor(btn.dataset.save, {
+          name: $('#eName').value.trim(),
+          badge: $('#eBadge').value.trim(),
+          badgeColor: color,
+          cats, editOthers: $('#eEdit').checked
+        });
+        toast('저장했습니다'); open=null;
+      }catch(e){ permErr(e); }
+    });
+    $$('#modal [data-rma]').forEach(btn=> btn.onclick=async ()=>{
+      if(!confirm(btn.dataset.rma+' 계정을 작가에서 뺄까요? 올린 글은 그대로 남습니다.')) return;
+      try{ await Store.delAuthor(btn.dataset.rma); open=null; toast('작가에서 뺐습니다'); }catch(e){ permErr(e); }
     });
   };
   S._authorsDraw = draw;
@@ -1546,7 +1671,7 @@ function viewWrite(params){
       no: +$('#wNo').value || (ep? ep.no : maxNo+1),
       title: title.value.trim()|| `${maxNo+1}화`,
       body: body.value,
-      author,
+      author, authorEmail: (ep && ep.authorEmail) || (S.user? S.user.email : ''),
       createdAt: ep? ep.createdAt : undefined,
       views: ep? (ep.views||0) : 0
     });
@@ -1618,7 +1743,8 @@ function renderBatch(){
     $('#bGo').disabled=true; $('#bGo').textContent='등록 중…';
     for(const b of S.batch){
       maxNo += 1;
-      await Store.saveEpisode(sid, {no: b.no||maxNo, title:b.title, body:b.body, author, views:0});
+      await Store.saveEpisode(sid, {no: b.no||maxNo, title:b.title, body:b.body, author,
+        authorEmail:(S.user? S.user.email : ''), views:0});
     }
     S.batch=[]; toast('일괄 등록을 마쳤습니다'); location.hash='#/series/'+sid;
   };
@@ -1777,7 +1903,7 @@ function seedDemo(){
   Store._saveLocal(d);
 }
 const WHY = {
-  'no-config'  : '<b>firebase-config.js</b> 를 읽지 못했습니다. 그 파일이 index.html 과 같은 폴더에 있는지, 안에 <b>window.FIREBASE_CONFIG = {…}</b> 가 들어 있는지 확인해 주세요.',
+  'no-config'  : '<b>firebase-config.js</b> 를 읽지 못했습니다. index.html 과 <b>같은 폴더에 그 파일도 함께 올렸는지</b> 확인해 주세요. 파일을 하나로 쓰고 싶으면 index.html 의 &lt;/head&gt; 바로 위에 <b>&lt;script&gt;window.FIREBASE_CONFIG = {…}&lt;/script&gt;</b> 를 직접 넣어도 됩니다.',
   'placeholder': '<b>firebase-config.js</b> 안의 값이 아직 예시 그대로입니다. 아래 표에 실제로 읽힌 값이 보이니, 그 파일을 콘솔에서 복사한 값으로 채워 주세요. (index.html 만 새로 올리면 이 파일은 건드려지지 않습니다)',
   'no-sdk'     : 'Firebase 스크립트를 불러오지 못했습니다. 인터넷 연결이나 사내 방화벽, 광고 차단 확장을 확인해 주세요.',
   'init-failed': 'Firebase 초기화 중 오류가 났습니다.'
