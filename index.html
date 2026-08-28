@@ -114,6 +114,18 @@ img{max-width:100%;display:block}
 .conn:hover i{transform:scale(1.25)}
 .icobtn{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:var(--tx-2)}
 .icobtn:hover{background:var(--bg-soft);color:var(--tx)}
+.icobtn.mark.on{color:var(--accent-tx)}
+.icobtn.mark.on svg{fill:currentColor}
+.kakao{background:#3b1e1e;color:#ffe08a;font-size:13px;text-align:center;padding:10px 16px;line-height:1.6}
+.kakao button{margin-left:8px;background:#ffe08a;color:#3b1e1e;font-weight:800;padding:5px 12px;border-radius:8px;font-size:12.5px}
+.mk-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line-soft);cursor:pointer}
+.mk-row:last-child{border-bottom:0}
+.mk-row .pct{width:34px;flex:none;text-align:center;font-size:11.5px;font-weight:800;color:var(--accent-tx);font-variant-numeric:tabular-nums}
+.mk-row .bd{min-width:0;flex:1}
+.mk-row .t1{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mk-row .t2{font-size:11.5px;color:var(--tx-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.mk-row .x{width:24px;height:24px;border-radius:6px;color:var(--tx-3);flex:none}
+.mk-row .x:hover{background:var(--bg-soft);color:var(--danger)}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;border-radius:10px;font-weight:700;font-size:14px;transition:.15s;white-space:nowrap}
 .btn-pri{background:var(--accent);color:#fff}
 .btn-pri:hover{filter:brightness(1.08)}
@@ -312,6 +324,15 @@ textarea.inp{resize:vertical;min-height:96px;line-height:1.7}
 .chk{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--tx-2);cursor:pointer}
 .chk input{width:16px;height:16px;accent-color:var(--accent)}
 
+/* ── 접속자 관리 ──────────────────────────── */
+.rd-row{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid var(--line-soft)}
+.rd-row:last-child{border-bottom:0}
+.rd-row .dot2{width:7px;height:7px;border-radius:50%;flex:none}
+.rd-row .nm{flex:1;min-width:0;font-weight:600;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rd-row .tm{font-size:12px;color:var(--tx-3);white-space:nowrap}
+.rd-row .btn{padding:5px 11px;font-size:12.5px}
+.banned{margin-left:6px;font-size:10.5px;font-weight:800;color:#fff;background:var(--danger);padding:2px 6px;border-radius:5px}
+
 /* ── 이름 게이트 ──────────────────────────── */
 .gate{position:fixed;inset:0;z-index:300;background:var(--bg);display:none;align-items:center;justify-content:center;padding:24px}
 .gate.on{display:flex}
@@ -446,6 +467,9 @@ textarea.inp{resize:vertical;min-height:96px;line-height:1.7}
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 5l-7 7 7 7"/></svg>
     </button>
     <div class="tt" id="rdTop"></div>
+    <button class="icobtn mark" id="rdMarkBtn" title="책갈피 꽂기">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M6 4h12v17l-6-4.2L6 21z"/></svg>
+    </button>
     <button class="icobtn" id="rdEditBtn" title="이 회차 수정">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M4 20h4L19 9a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20z"/></svg>
     </button>
@@ -766,18 +790,31 @@ const Store = {
 
   async touchReader(name){
     if(this.mode!=='cloud') return;
-    const id = String(name).trim().slice(0,20).replace(/[\/\.#\[\]]/g,'_');
-    if(!id) return;
+    const nm = String(name||'').trim().slice(0,20);
+    if(!nm) return;
     try{
-      await this.db.collection('novel_readers').doc(id).set({
-        name:String(name).trim().slice(0,20), lastSeen:now()
-      }, {merge:true});
+      await this.db.collection('novel_readers').doc(Me.did)
+        .set({name:nm, lastSeen:now()}, {merge:true});
     }catch(e){ /* 규칙이 막아도 읽기에는 지장 없음 */ }
   },
   watchReaders(cb){
     if(this.mode!=='cloud'){ cb([]); return; }
     this.db.collection('novel_readers').onSnapshot(
       snap=> cb(snap.docs.map(d=>Object.assign({id:d.id}, d.data()))), ()=>cb([]));
+  },
+  async setBan(did, on){
+    await this.db.collection('novel_readers').doc(did).set({banned:!!on}, {merge:true});
+  },
+  watchBans(cb){
+    if(this.mode!=='cloud'){ cb([]); return; }
+    this.db.collection('novel_bans').onSnapshot(
+      snap=> cb(snap.docs.map(d=>d.id)), ()=>cb([]));
+  },
+  async banName(name, on){
+    const id = String(name).trim().slice(0,20).replace(/[\/\.#\[\]]/g,'_');
+    if(!id) return;
+    if(on) await this.db.collection('novel_bans').doc(id).set({name:String(name).trim(), at:now()});
+    else   await this.db.collection('novel_bans').doc(id).delete();
   },
 
   watchConfig(cb){
@@ -813,9 +850,29 @@ const S = {
   hero:0, heroTimer:null, reader:null, batch:[],
   cats: DEFAULT_CATS.slice(), siteName: DEFAULT_NAME,
   user:null, authors:[], authReady:false,
-  conn:{ok:false, err:null, lastSync:0}, readers:[]
+  conn:{ok:false, err:null, lastSync:0}, readers:[], bans:[]
 };
-const Me   = { get name(){ return LS.get('mg_me',''); }, set name(v){ LS.set('mg_me',v); } };
+const Me   = {
+  get name(){ return LS.get('mg_me',''); }, set name(v){ LS.set('mg_me',v); },
+  get did(){ let d=LS.get('mg_did',''); if(!d){ d=uid()+uid(); LS.set('mg_did',d); } return d; }
+};
+const Mark = {
+  all(){ return LS.get('mg_marks', []); },
+  find(sid,eid){ return this.all().find(m=>m.sid===sid && m.eid===eid) || null; },
+  toggle(m){
+    let l=this.all().filter(x=>!(x.sid===m.sid && x.eid===m.eid));
+    const on = l.length===this.all().length;
+    if(on) l.unshift(m);
+    LS.set('mg_marks', l.slice(0,50));
+    return on;
+  },
+  remove(sid,eid){ LS.set('mg_marks', this.all().filter(x=>!(x.sid===sid && x.eid===eid))); },
+  pos(sid,eid,v){
+    const k='mg_pos_'+sid+'_'+eid;
+    if(v===undefined) return LS.get(k,0);
+    LS.set(k,v);
+  }
+};
 const Read = {
   key(sid){ return 'mg_read_'+sid; },
   list(sid){ return LS.get(this.key(sid), []); },
@@ -982,6 +1039,18 @@ function viewHome(){
           <div class="panel-hd"><h3>인기 순위</h3><span class="live"><i class="dot"></i>실시간</span></div>
           ${popular(10).map((s,i)=>rankHTML(s,i)).join('')}
         </div>
+        ${Mark.all().length? `<div class="panel">
+          <div class="panel-hd"><h3>내 책갈피</h3></div>
+          ${Mark.all().slice(0,6).map(m=>`
+            <div class="mk-row" data-mk="${esc(m.sid)}|${esc(m.eid)}">
+              <div class="pct">${Math.round((m.pos||0)*100)}%</div>
+              <div class="bd">
+                <div class="t1">${esc(m.title||'제목 없음')}</div>
+                <div class="t2">${esc(m.series||'')} · ${m.no||''}화 · ${ago(m.at)}</div>
+              </div>
+              <button class="x" data-mkx="${esc(m.sid)}|${esc(m.eid)}">✕</button>
+            </div>`).join('')}
+        </div>`:''}
         ${recent.length? `<div class="panel">
           <div class="panel-hd"><h3>최근 본 작품</h3></div>
           ${recent.map((s,i)=>rankHTML(s,-1)).join('')}
@@ -1106,7 +1175,7 @@ function viewSeries(id){
     if(!eps.length){ toast('등록된 회차가 없습니다'); return; }
     const lastId=Read.last(id);
     const target = eps.find(e=>e.id===lastId) || eps[0];
-    openReader(id, target.id);
+    goRead(id, target.id);
   };
 }
 function renderEpList(sid){
@@ -1138,7 +1207,7 @@ function renderEpList(sid){
       const ed=ev.target.closest('[data-edit]'), dl=ev.target.closest('[data-del]');
       if(ed){ ev.stopPropagation(); location.hash=`#/write?s=${sid}&e=${ed.dataset.edit}`; return; }
       if(dl){ ev.stopPropagation(); delEp(sid, dl.dataset.del); return; }
-      openReader(sid, r.dataset.ep);
+      goRead(sid, r.dataset.ep);
     };
   });
 }
@@ -1168,6 +1237,7 @@ function apply(){
   const fr=$('#fsRange'), lr=$('#lhRange');
   if(fr) fr.value=c.fs; if(lr) lr.value=c.lh;
 }
+function goRead(sid,eid){ location.hash = `#/read/${sid}/${eid}`; }
 async function openReader(sid, eid){
   let eps = S.eps[sid];
   if(!eps){ eps = await Store.getEpisodes(sid); S.eps[sid]=eps; }
@@ -1191,20 +1261,55 @@ async function openReader(sid, eid){
   $('#reader').classList.add('on');
   $('#rdProg').style.display='block';
   document.body.style.overflow='hidden';
-  $('#reader').scrollTop=0;
+  const saved = Mark.pos(sid, eid);
+  $('#reader').scrollTop = 0;
+  if(saved>0.02){
+    setTimeout(()=>{
+      const el=$('#reader');
+      el.scrollTop = saved*(el.scrollHeight-el.clientHeight);
+      toast('읽던 곳에서 이어 봅니다');
+    }, 60);
+  }
+  renderMarkBtn();
   Read.mark(sid, eid);
   Store.bumpView(sid, eid);
-  $('#rdPrev').onclick=()=> idx>0 && openReader(sid, eps[idx-1].id);
-  $('#rdNext').onclick=()=> idx<eps.length-1 && openReader(sid, eps[idx+1].id);
-  $('#rdList').onclick=()=>{ closeReader(); location.hash='#/series/'+sid; };
+  $('#rdPrev').onclick=()=> idx>0 && goRead(sid, eps[idx-1].id);
+  $('#rdNext').onclick=()=> idx<eps.length-1 && goRead(sid, eps[idx+1].id);
+  $('#rdList').onclick=()=>{ location.hash='#/series/'+sid; };
 }
-function closeReader(){
+function hideReader(){
+  if(!S.reader) return;
   $('#reader').classList.remove('on');
   $('#rdSet').classList.remove('on');
   $('#rdProg').style.display='none';
   document.body.style.overflow='';
-  if(S.reader) renderEpList(S.reader.sid);
+  const sid=S.reader.sid;
   S.reader=null;
+  renderEpList(sid);
+}
+function closeReader(){
+  const sid = S.reader? S.reader.sid : null;
+  if(history.length>1) history.back();
+  else location.hash = sid? '#/series/'+sid : '#/';
+}
+/* 책갈피 버튼 */
+function renderMarkBtn(){
+  const b=$('#rdMarkBtn'); if(!b || !S.reader) return;
+  const on = !!Mark.find(S.reader.sid, S.reader.eid);
+  b.classList.toggle('on', on);
+  b.title = on? '책갈피 빼기' : '책갈피 꽂기';
+}
+function toggleMark(){
+  if(!S.reader) return;
+  const {sid,eid} = S.reader;
+  const e = (S.eps[sid]||[]).find(x=>x.id===eid) || {};
+  const ss = S.series.find(x=>x.id===sid) || {};
+  const el = $('#reader');
+  const pos = el.scrollHeight>el.clientHeight ? el.scrollTop/(el.scrollHeight-el.clientHeight) : 0;
+  const on = Mark.toggle({sid, eid, no:e.no||0, title:e.title||'', series:ss.title||'', pos, at:now()});
+  renderMarkBtn();
+  toast(on? '책갈피를 꽂았습니다' : '책갈피를 뺐습니다');
+  if(location.hash==='#/'||location.hash==='') viewHome();
 }
 
 /* ══════════════════════════════════════════════════
@@ -1246,7 +1351,7 @@ function openSeriesModal(s){
       <button class="btn btn-line" data-close>취소</button>
       <button class="btn btn-pri" id="mSave">${edit?'수정 저장':'만들기'}</button>
     </div>`;
-  $('#ovl').classList.add('on');
+  $('#ovl').classList.add('on'); markModalOpen();
   const prev=()=>{ $('#mPrev').innerHTML = coverHTML({cover:tmpCover, title:$('#mTitle').value||'제목', author:$('#mAuthor').value, grad:tmpGrad}); };
   prev();
   $('#mTitle').oninput = prev;
@@ -1333,7 +1438,7 @@ function openConfigModal(){
     };
   };
   draw();
-  $('#ovl').classList.add('on');
+  $('#ovl').classList.add('on'); markModalOpen();
 }
 function applyPerm(){
   const on = canWrite();
@@ -1364,7 +1469,7 @@ function openLoginModal(){
       <button class="btn btn-line" data-close>취소</button>
       <button class="btn btn-pri" id="lGo">로그인</button>
     </div>`;
-  $('#ovl').classList.add('on');
+  $('#ovl').classList.add('on'); markModalOpen();
   setTimeout(()=>$('#lEmail').focus(), 60);
   const err = m => $('#lErr').textContent = m;
   const go = async ()=>{
@@ -1387,6 +1492,26 @@ function openLoginModal(){
 }
 
 /* 연결 상태 */
+const ONLINE_MS = 3*60*1000;
+function isOnline(r){ return r.lastSeen && (now()-r.lastSeen) < ONLINE_MS; }
+function myReader(){ return S.readers.find(r=>r.id===Me.did) || null; }
+function amBanned(){
+  if(Store.mode!=='cloud' || S.user) return false;
+  const r=myReader();
+  const nameId = String(Me.name||'').trim().slice(0,20).replace(/[\/\.#\[\]]/g,'_');
+  return !!(r && r.banned) || (!!nameId && S.bans.includes(nameId));
+}
+function enforceBan(){
+  if(!amBanned()) return false;
+  const g=$('#gate');
+  if(!g.classList.contains('on')){
+    Me.name='';
+    showGate(true);
+  }
+  const p=$('#gate .gate-card p');
+  if(p) p.innerHTML = '<b style="color:var(--danger)">이 이름은 현재 이용이 제한되어 있습니다.</b><br>관리자에게 문의해 주세요.';
+  return true;
+}
 function showGate(force){
   const g=$('#gate');
   $('#gateTitle').textContent = S.siteName;
@@ -1400,6 +1525,11 @@ function showGate(force){
 function enterSite(){
   const n=$('#gateName').value.trim();
   if(!n){ $('#gateName').focus(); toast('이름을 입력해 주세요'); return; }
+  const nameId = n.slice(0,20).replace(/[\/\.#\[\]]/g,'_');
+  const mine = myReader();
+  if(S.bans.includes(nameId) || (mine && mine.banned)){
+    toast('이 이름은 현재 이용이 제한되어 있습니다'); return;
+  }
   Me.name=n;
   Store.touchReader(n);
   $('#gate').classList.remove('on');
@@ -1434,13 +1564,13 @@ function openStatusModal(){
         ${row('권한', isAdmin()? '관리자 (모든 권한)' : (canWrite()? '작가 (글쓰기 가능)' : '읽기 전용'))}
         ${row('등록된 작가', cloud? S.authors.length+'명' : '—')}
         ${row('작품 수', S.series.length+'편')}
-        ${cloud? row('다녀간 독자', S.readers.length+'명') : ''}
+        ${cloud? row('다녀간 독자', S.readers.length+'명 (지금 '+S.readers.filter(isOnline).length+'명)') : ''}
       </div>
       ${S.conn.err? `<div class="hint" style="color:var(--danger);margin-top:10px">${esc(S.conn.err)}</div>`:''}
       ${!cloud? `<div class="hint" style="margin-top:10px">${WHY[Store.why]||'index.html 위쪽 FIREBASE_CONFIG에 콘솔 값을 넣으면 팀원과 공유되는 모드로 바뀝니다.'}${Store.whyMsg? '<br>'+esc(Store.whyMsg):''}</div>`:''}
     </div>
     <div class="modal-ft"><button class="btn btn-line" data-close>닫기</button></div>`;
-  $('#ovl').classList.add('on');
+  $('#ovl').classList.add('on'); markModalOpen();
 }
 
 function openAccountModal(){
@@ -1452,7 +1582,9 @@ function openAccountModal(){
       ${u? `<div class="hint" style="margin:-4px 0 14px">${esc(u.email)} ${isAdmin()?'· 관리자':(canWrite()?'· 작가':'· 읽기 전용')}</div>`:''}
       <div class="f"><label>이름 <span class="opt">(작품과 화면에 표시되는 이름)</span></label>
         <input class="inp" id="aName" value="${esc(Me.name||(u? u.name:''))}" placeholder="예: 야근왕"></div>
-      ${isAdmin() && Store.mode==='cloud'? `<button class="btn btn-line" id="aAuthors">작가 관리</button>`:''}
+      ${isAdmin() && Store.mode==='cloud'? `<div style="display:flex;gap:8px">
+        <button class="btn btn-line" id="aAuthors">작가 관리</button>
+        <button class="btn btn-line" id="aReaders">접속자 관리</button></div>`:''}
     </div>
     <div class="modal-ft">
       ${Store.mode==='cloud'? (u? `<button class="btn btn-danger" id="aOut">로그아웃</button>`
@@ -1460,7 +1592,7 @@ function openAccountModal(){
       <button class="btn btn-line" data-close>닫기</button>
       <button class="btn btn-pri" id="aSave">저장</button>
     </div>`;
-  $('#ovl').classList.add('on');
+  $('#ovl').classList.add('on'); markModalOpen();
   $('#aSave').onclick = ()=>{
     const v=$('#aName').value.trim();
     if(!v){ toast('이름을 입력해 주세요'); return; }
@@ -1469,7 +1601,58 @@ function openAccountModal(){
   if($('#aOut')) $('#aOut').onclick = ()=>{ Store.signOut(); closeModal(); };
   if($('#aIn'))  $('#aIn').onclick  = ()=> openLoginModal();
   if($('#aAuthors')) $('#aAuthors').onclick = openAuthorsModal;
+  if($('#aReaders')) $('#aReaders').onclick = openReadersModal;
 }
+function openReadersModal(){
+  const draw = ()=>{
+    const list = S.readers.slice().sort((a,b)=>(b.lastSeen||0)-(a.lastSeen||0));
+    const on  = list.filter(isOnline);
+    const off = list.filter(r=>!isOnline(r));
+    const row = r=>`<div class="rd-row">
+      <i class="dot2" style="background:${isOnline(r)?'#22c07a':'var(--tx-3)'}"></i>
+      <span class="nm">${esc(r.name||'이름 없음')}${r.banned?'<span class="banned">차단됨</span>':''}</span>
+      <span class="tm">${r.lastSeen? ago(r.lastSeen):'—'}</span>
+      <button class="btn ${r.banned?'btn-soft':'btn-danger'}" data-ban="${esc(r.id)}" data-on="${r.banned?'0':'1'}">${r.banned?'해제':'강퇴'}</button>
+    </div>`;
+    $('#modal').innerHTML = `
+      <div class="modal-hd"><h3>접속자 관리</h3>
+        <button class="icobtn" style="margin-left:auto" data-close>✕</button></div>
+      <div class="modal-bd">
+        <div class="f"><label>지금 보고 있는 사람 ${on.length}명</label>
+          ${on.length? on.map(row).join('') : '<div class="hint">최근 3분 안에 움직인 사람이 없습니다.</div>'}
+        </div>
+        <div class="f"><label>다녀간 사람 ${off.length}명</label>
+          ${off.length? off.slice(0,40).map(row).join('') : '<div class="hint">아직 없습니다.</div>'}
+        </div>
+        <div class="f"><label>이름 자체를 막기</label>
+          <div class="f2" style="margin-bottom:8px">
+            <input class="inp" id="bName" placeholder="막을 이름">
+            <button class="btn btn-danger" id="bAdd">이름 차단</button>
+          </div>
+          ${S.bans.length? `<div class="chips">${S.bans.map(b=>`<button class="chip" data-unban="${esc(b)}">${esc(b)} ✕</button>`).join('')}</div>`
+            : '<div class="hint">차단된 이름이 없습니다.</div>'}
+          <div class="hint">강퇴는 그 사람이 쓰던 브라우저를 막습니다. 다른 이름으로 다시 들어오는 것까지 막으려면 이름 차단을 함께 쓰세요.</div>
+        </div>
+      </div>
+      <div class="modal-ft"><button class="btn btn-line" data-close>닫기</button></div>`;
+    $$('#modal [data-ban]').forEach(b=> b.onclick=async ()=>{
+      try{ await Store.setBan(b.dataset.ban, b.dataset.on==='1'); toast(b.dataset.on==='1'?'강퇴했습니다':'해제했습니다'); }
+      catch(e){ permErr(e); }
+    });
+    $('#bAdd').onclick = async ()=>{
+      const v=$('#bName').value.trim();
+      if(!v){ toast('이름을 입력해 주세요'); return; }
+      try{ await Store.banName(v, true); $('#bName').value=''; toast('이름을 차단했습니다'); }catch(e){ permErr(e); }
+    };
+    $$('#modal [data-unban]').forEach(b=> b.onclick=async ()=>{
+      try{ await Store.banName(b.dataset.unban, false); toast('차단을 풀었습니다'); }catch(e){ permErr(e); }
+    });
+  };
+  S._readersDraw = draw;
+  draw();
+  $('#ovl').classList.add('on'); markModalOpen();
+}
+
 function openAuthorsModal(){
   let open = null;   // 펼쳐 놓은 작가 이메일
   const draw = ()=>{
@@ -1560,9 +1743,17 @@ function openAuthorsModal(){
   };
   S._authorsDraw = draw;
   draw();
-  $('#ovl').classList.add('on');
+  $('#ovl').classList.add('on'); markModalOpen();
 }
-function closeModal(){ S._authorsDraw=null; $('#ovl').classList.remove('on'); $('#modal').innerHTML=''; }
+function closeModal(){
+  S._authorsDraw=null; S._readersDraw=null;
+  const was = $('#ovl').classList.contains('on');
+  $('#ovl').classList.remove('on'); $('#modal').innerHTML='';
+  if(was && history.state && history.state.m){ history.back(); }
+}
+function markModalOpen(){
+  if(!(history.state && history.state.m)) history.pushState({m:1}, '');
+}
 function resizeImage(file, mw, mh){
   return new Promise((res,rej)=>{
     const fr=new FileReader();
@@ -1789,12 +1980,16 @@ function setTheme(t){
 function route(){
   const h = location.hash || '#/';
   closeModal();
-  if(!h.startsWith('#/read')) { /* noop */ }
-  if(S.reader && h.indexOf('#/read')!==0) closeReader();
-  window.scrollTo(0,0);
   const [path, qs] = h.slice(2).split('?');
   const params = new URLSearchParams(qs||'');
   const seg = path.split('/');
+  if(seg[0]==='read' && seg[1] && seg[2]){
+    if(!S.series.length){ S._pendingRead=[seg[1],seg[2]]; }
+    openReader(seg[1], seg[2]);
+    return;
+  }
+  if(S.reader) hideReader();
+  window.scrollTo(0,0);
   if(seg[0]==='series' && seg[1]) return viewSeries(seg[1]);
   if(seg[0]==='write') return viewWrite(params);
   S.cat = S.cat||'전체';
@@ -1805,6 +2000,10 @@ function route(){
    12. 이벤트 바인딩
    ══════════════════════════════════════════════════ */
 document.addEventListener('click', e=>{
+  const mx = e.target.closest('[data-mkx]');
+  if(mx){ e.stopPropagation(); const [a,b]=mx.dataset.mkx.split('|'); Mark.remove(a,b); viewHome(); return; }
+  const mk = e.target.closest('[data-mk]');
+  if(mk){ const [a,b]=mk.dataset.mk.split('|'); goRead(a,b); return; }
   const go = e.target.closest('[data-go]');
   if(go){ location.hash = go.dataset.go; return; }
   const hd = e.target.closest('[data-hero]');
@@ -1816,7 +2015,7 @@ document.addEventListener('click', e=>{
       S.eps[sid]=eps;
       const sorted=eps.slice().sort((a,b)=>(a.no||0)-(b.no||0));
       if(!sorted.length){ toast('등록된 회차가 없습니다'); return; }
-      openReader(sid, sorted[0].id);
+      goRead(sid, sorted[0].id);
     });
     return;
   }
@@ -1849,12 +2048,29 @@ $('#lhRange').oninput = e=>{ const c=RD.get(); c.lh=+e.target.value; RD.set(c); 
 $$('#fontSeg button').forEach(b=> b.onclick=()=>{ const c=RD.get(); c.font=b.dataset.v; RD.set(c); });
 $$('#widthSeg button').forEach(b=> b.onclick=()=>{ const c=RD.get(); c.w=+b.dataset.v; RD.set(c); });
 $$('#themeSeg button').forEach(b=> b.onclick=()=> setTheme(b.dataset.v));
+let posT;
 $('#reader').addEventListener('scroll', ()=>{
   const el=$('#reader');
   const p = el.scrollHeight>el.clientHeight ? el.scrollTop/(el.scrollHeight-el.clientHeight) : 0;
   $('#rdProg').style.width = (p*100)+'%';
+  if(S.reader){
+    clearTimeout(posT);
+    posT=setTimeout(()=> Mark.pos(S.reader.sid, S.reader.eid, p), 400);
+  }
 });
+$('#rdMarkBtn').onclick = toggleMark;
 document.addEventListener('keydown', e=>{
+  // 백스페이스 = 뒤로가기 (입력 중일 때는 원래 동작 유지)
+  if(e.key==='Backspace'){
+    const t=e.target, tag=(t.tagName||'').toLowerCase();
+    const typing = tag==='input' || tag==='textarea' || tag==='select' || t.isContentEditable;
+    if(!typing && !$('#gate').classList.contains('on')){
+      e.preventDefault();
+      if($('#ovl').classList.contains('on')) closeModal();
+      else history.back();
+      return;
+    }
+  }
   if(e.key==='Escape'){ if($('#ovl').classList.contains('on')) closeModal(); else if(S.reader) closeReader(); }
   if(S.reader && !$('#ovl').classList.contains('on')){
     if(e.key==='ArrowRight'){ const b=$('#rdNext'); if(b&&!b.disabled) b.click(); }
@@ -1862,6 +2078,12 @@ document.addEventListener('keydown', e=>{
   }
 });
 window.addEventListener('hashchange', route);
+window.addEventListener('popstate', ()=>{
+  if($('#ovl').classList.contains('on')){
+    S._authorsDraw=null; S._readersDraw=null;
+    $('#ovl').classList.remove('on'); $('#modal').innerHTML='';
+  }
+});
 
 /* ══════════════════════════════════════════════════
    13. 시작
@@ -1918,7 +2140,28 @@ function modeBar(){
     <button id="whyBtn">자세히</button></div>`;
   $('#whyBtn').onclick = openStatusModal;
 }
+/* 카카오톡 안에서 열렸으면 기본 브라우저로 넘긴다 */
+function escapeKakao(){
+  const ua = navigator.userAgent || '';
+  if(!/KAKAOTALK/i.test(ua)) return;
+  const url = location.href;
+  const bar = document.createElement('div');
+  bar.className='kakao';
+  bar.innerHTML = '카카오톡 안에서 보고 있습니다. 밖에서 열어야 책갈피와 로그인이 유지됩니다.<button id="kkGo">브라우저로 열기</button>';
+  document.body.insertBefore(bar, document.body.firstChild);
+  const open = ()=>{
+    if(/android/i.test(ua)){
+      location.href = 'intent://' + url.replace(/^https?:\/\//,'')
+        + '#Intent;scheme=' + (location.protocol==='https:'?'https':'http') + ';package=com.android.chrome;end';
+    }else{
+      location.href = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(url);
+    }
+  };
+  $('#kkGo').onclick = open;
+  setTimeout(open, 400);   // 자동으로 한 번 시도
+}
 function boot(){
+  escapeKakao();
   setTheme(LS.get('mg_theme','auto'));
   renderWho(); renderGnb(); apply();
   Store.init();
@@ -1931,7 +2174,13 @@ function boot(){
     applyPerm(); route();
   });
   Store.watchAuthors(list=>{ S.authors=list; applyPerm(); if(S._authorsDraw) S._authorsDraw(); });
-  Store.watchReaders(list=>{ S.readers=list; });
+  Store.watchReaders(list=>{
+    S.readers=list;
+    if(S._readersDraw) S._readersDraw();
+    enforceBan();
+  });
+  Store.watchBans(list=>{ S.bans=list; if(S._readersDraw) S._readersDraw(); enforceBan(); });
+  setInterval(()=>{ if(Me.name && !amBanned()) Store.touchReader(Me.name); }, 60000);
   Store.watchConfig(cfg=>{
     if(cfg){
       if(Array.isArray(cfg.cats) && cfg.cats.length) S.cats = cfg.cats;
