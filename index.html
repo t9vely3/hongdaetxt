@@ -214,7 +214,12 @@ select.mini{border:1px solid var(--line);background:var(--surface);border-radius
 /* ── series detail ────────────────────────── */
 .sd-top{position:relative;border-radius:20px;overflow:hidden;margin:24px 0 28px;border:1px solid var(--line)}
 .sd-in{position:relative;display:flex;gap:28px;padding:32px 34px;color:#fff}
-.sd-cover{width:172px;flex:none;aspect-ratio:3/4;border-radius:12px;overflow:hidden;box-shadow:0 14px 34px rgba(0,0,0,.45)}
+.sd-cover{position:relative;width:172px;flex:none;aspect-ratio:3/4;border-radius:12px;overflow:hidden;box-shadow:0 14px 34px rgba(0,0,0,.45)}
+.sd-cover.editable{cursor:pointer}
+.cv-edit{position:absolute;left:0;right:0;bottom:0;padding:9px;text-align:center;font-size:12px;font-weight:700;
+  background:rgba(10,10,16,.72);color:#fff;opacity:0;transition:.18s}
+.sd-cover.editable:hover .cv-edit{opacity:1}
+@media (hover:none){ .cv-edit{opacity:1} }
 .sd-info{min-width:0;flex:1;display:flex;flex-direction:column}
 .sd-cat{font-size:12.5px;font-weight:700;opacity:.85}
 .sd-title{font-family:var(--font-disp);font-size:29px;font-weight:700;letter-spacing:-.045em;margin:8px 0 10px;line-height:1.3;text-wrap:balance}
@@ -266,6 +271,27 @@ select.mini{border:1px solid var(--line);background:var(--surface);border-radius
 .seg button{flex:1;padding:8px 0;border:1px solid var(--line);border-radius:9px;font-size:13px;font-weight:600;color:var(--tx-2);background:var(--surface)}
 .seg button.on{background:var(--accent);border-color:var(--accent);color:#fff}
 input[type=range]{width:100%;accent-color:var(--accent)}
+
+/* ── 댓글 ─────────────────────────────────── */
+.cmt{margin-top:52px;padding-top:26px;border-top:1px solid var(--line)}
+.cmt h3{font-family:var(--font-disp);font-size:17px;font-weight:700;margin:0 0 14px;letter-spacing:-.03em}
+.cmt h3 span{color:var(--accent-tx)}
+.cmt-write{display:flex;gap:8px;align-items:flex-end;margin-bottom:18px}
+.cmt-write textarea{flex:1;border:1px solid var(--line);border-radius:11px;background:var(--surface-2);
+  padding:11px 13px;outline:none;resize:vertical;font-size:14.5px;line-height:1.6;min-height:52px}
+.cmt-write textarea:focus{border-color:var(--accent);background:var(--surface)}
+.cmt-write .btn{height:44px}
+.cmt-row{padding:12px 0;border-bottom:1px solid var(--line-soft)}
+.cmt-row:last-child{border-bottom:0}
+.cmt-hd{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--tx-3);margin-bottom:5px}
+.cmt-hd b{font-size:13.5px;color:var(--tx);font-weight:700}
+.cmt-hd button{margin-left:auto;width:22px;height:22px;border-radius:6px;color:var(--tx-3);font-size:12px}
+.cmt-hd button:hover{background:var(--bg-soft);color:var(--danger)}
+.cmt-bd{white-space:pre-wrap;font-size:14.5px;line-height:1.75}
+.icon-pal{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}
+.icon-pal button{width:32px;height:32px;border-radius:9px;border:1px solid var(--line);font-size:15px;display:grid;place-items:center;background:var(--surface)}
+.icon-pal button.on{border-color:var(--accent);background:var(--accent-soft)}
+.badge-prev{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12.5px;color:var(--tx-3)}
 
 /* ── forms / modal ────────────────────────── */
 .ovl{position:fixed;inset:0;background:rgba(8,8,14,.55);backdrop-filter:blur(3px);z-index:150;display:none;align-items:center;justify-content:center;padding:20px}
@@ -779,6 +805,10 @@ const Store = {
       snap=> cb(snap.docs.map(d=>Object.assign({id:d.id}, d.data()))),
       e=>{ console.error(e); cb([]); });
   },
+  async updateMe(data){
+    if(this.mode!=='cloud' || !S.user) return;
+    await this.db.collection('novel_authors').doc(S.user.email).set(data, {merge:true});
+  },
   async addAuthor(email, data){
     const id = String(email).trim().toLowerCase();
     await this.db.collection('novel_authors').doc(id)
@@ -815,6 +845,41 @@ const Store = {
     if(!id) return;
     if(on) await this.db.collection('novel_bans').doc(id).set({name:String(name).trim(), at:now()});
     else   await this.db.collection('novel_bans').doc(id).delete();
+  },
+
+  watchComments(sid, eid, cb){
+    if(this.mode!=='cloud'){
+      const d=this._local(); const k=sid+'|'+eid;
+      d.cmt=d.cmt||{}; this._cmtCb={k,cb};
+      cb(Object.values(d.cmt[k]||{}));
+      return;
+    }
+    if(this._cmtUnsub) this._cmtUnsub();
+    this._cmtUnsub = this.db.collection('novel_series').doc(sid)
+      .collection('episodes').doc(eid).collection('comments')
+      .onSnapshot(snap=> cb(snap.docs.map(d=>Object.assign({id:d.id}, d.data()))), e=>{ console.error(e); cb([]); });
+  },
+  stopComments(){ if(this._cmtUnsub){ this._cmtUnsub(); this._cmtUnsub=null; } this._cmtCb=null; },
+  async addComment(sid, eid, c){
+    if(this.mode!=='cloud'){
+      const d=this._local(); const k=sid+'|'+eid; d.cmt=d.cmt||{}; d.cmt[k]=d.cmt[k]||{};
+      const id=uid(); d.cmt[k][id]=Object.assign({id}, c); this._saveLocal(d);
+      if(this._cmtCb && this._cmtCb.k===k) this._cmtCb.cb(Object.values(d.cmt[k]));
+      return;
+    }
+    await this.db.collection('novel_series').doc(sid)
+      .collection('episodes').doc(eid).collection('comments').add(c);
+  },
+  async delComment(sid, eid, cid){
+    if(this.mode!=='cloud'){
+      const d=this._local(); const k=sid+'|'+eid;
+      if(d.cmt && d.cmt[k]) delete d.cmt[k][cid];
+      this._saveLocal(d);
+      if(this._cmtCb && this._cmtCb.k===k) this._cmtCb.cb(Object.values((d.cmt&&d.cmt[k])||{}));
+      return;
+    }
+    await this.db.collection('novel_series').doc(sid)
+      .collection('episodes').doc(eid).collection('comments').doc(cid).delete();
   },
 
   watchConfig(cb){
@@ -884,6 +949,7 @@ const Read = {
   toggleLike(sid){ let l=LS.get('mg_like',[]); const on=!l.includes(sid); l = on? l.concat(sid) : l.filter(x=>x!==sid); LS.set('mg_like',l); return on; }
 };
 
+const BADGE_ICONS = ['','⭐','👑','🔥','🌙','✒️','📖','🎬','🍀','⚡','🐾','💎','🏆','🌸'];
 const BADGES = {
   violet:['#5b4bff','#ffffff'], gold:['#e8a020','#ffffff'], green:['#0ca678','#ffffff'],
   blue:['#1c7ed6','#ffffff'], pink:['#d6336c','#ffffff'], gray:['#6b7280','#ffffff']
@@ -939,9 +1005,14 @@ function recOf(obj){
 }
 function badgeHTML(obj){
   const r=recOf(obj);
-  if(!r || !r.badge) return '';
+  if(!r || (!r.badge && !r.badgeIcon)) return '';
   const c=BADGES[r.badgeColor||'violet']||BADGES.violet;
-  return `<span class="badge" style="background:${c[0]};color:${c[1]}">${esc(r.badge)}</span>`;
+  return `<span class="badge" style="background:${c[0]};color:${c[1]}">${r.badgeIcon? esc(r.badgeIcon)+(r.badge?' ':'') : ''}${esc(r.badge||'')}</span>`;
+}
+function badgePreview(icon, text, color){
+  const c=BADGES[color||'violet']||BADGES.violet;
+  if(!text && !icon) return '<span class="hint">뱃지 없음</span>';
+  return `<span class="badge" style="background:${c[0]};color:${c[1]}">${icon? esc(icon)+(text?' ':'') : ''}${esc(text||'')}</span>`;
 }
 
 /* ══════════════════════════════════════════════════
@@ -1133,7 +1204,9 @@ function viewSeries(id){
       <div class="hero-bg" style="${bg?bg:`background:linear-gradient(140deg,${g[0]},${g[1]})`}"></div>
       <div class="hero-veil"></div>
       <div class="sd-in">
-        <div class="sd-cover">${coverHTML(s)}</div>
+        <div class="sd-cover${canEditSeries(s)?' editable':''}" ${canEditSeries(s)?'id="sdCover" title="표지 바꾸기"':''}>
+          ${coverHTML(s)}${canEditSeries(s)?'<span class="cv-edit">표지 바꾸기</span>':''}
+        </div>
         <div class="sd-info">
           <div class="sd-cat">${esc(s.category||'미분류')}</div>
           <div class="sd-title">${esc(s.title||'제목 없음')}</div>
@@ -1167,6 +1240,7 @@ function viewSeries(id){
 
   $('#btnLike').onclick = async ()=>{ const on=Read.toggleLike(id); await Store.toggleLike(id,on); toast(on?'좋아요에 추가했습니다':'좋아요를 취소했습니다'); };
   if($('#btnEditS')) $('#btnEditS').onclick = ()=> openSeriesModal(s);
+  if($('#sdCover')) $('#sdCover').onclick = ()=> openSeriesModal(s);
   if($('#btnDelS')) $('#btnDelS').onclick = async ()=>{
     if(!confirm(`'${s.title}' 작품과 모든 회차를 삭제합니다. 계속할까요?`)) return;
     await Store.delSeries(id); toast('삭제했습니다'); location.hash='#/';
@@ -1264,7 +1338,15 @@ async function openReader(sid, eid){
       <button class="btn btn-line btn-lg" id="rdPrev" ${idx<=0?'disabled':''}>‹ 이전 화</button>
       <button class="btn btn-line btn-lg" id="rdList">목록</button>
       <button class="btn btn-pri btn-lg" id="rdNext" ${idx>=eps.length-1?'disabled':''}>다음 화 ›</button>
-    </div>`;
+    </div>
+    <section class="cmt">
+      <h3>댓글 <span id="cmtCnt">0</span></h3>
+      <div class="cmt-write">
+        <textarea id="cmtBody" rows="2" placeholder="${Me.name? esc(Me.name)+'(으)로 댓글을 남깁니다' : '먼저 이름을 정해 주세요'}" maxlength="1000"></textarea>
+        <button class="btn btn-pri" id="cmtGo">등록</button>
+      </div>
+      <div id="cmtList"><div class="hint">불러오는 중…</div></div>
+    </section>`;
   apply();
   $('#reader').classList.add('on');
   $('#rdProg').style.display='block';
@@ -1279,6 +1361,7 @@ async function openReader(sid, eid){
     }, 60);
   }
   renderMarkBtn();
+  setupComments(sid, eid);
   Read.mark(sid, eid);
   Store.bumpView(sid, eid);
   $('#rdPrev').onclick=()=> idx>0 && goRead(sid, eps[idx-1].id);
@@ -1287,6 +1370,7 @@ async function openReader(sid, eid){
 }
 function hideReader(){
   if(!S.reader) return;
+  Store.stopComments();
   $('#reader').classList.remove('on');
   $('#rdSet').classList.remove('on');
   $('#rdProg').style.display='none';
@@ -1300,6 +1384,58 @@ function closeReader(){
   if(history.length>1) history.back();
   else location.hash = sid? '#/series/'+sid : '#/';
 }
+/* 댓글 */
+function canDelComment(c, sid){
+  if(isAdmin() || Store.mode!=='cloud') return true;
+  const ss = S.series.find(x=>x.id===sid);
+  if(ss && canEditSeries(ss)) return true;
+  if(S.user && c.uid && c.uid===S.user.email) return true;
+  return c.did===Me.did && (now()-(c.at||0) < 5*60*1000);
+}
+function renderComments(sid, eid, list){
+  const box=$('#cmtList'); if(!box) return;
+  const arr = list.slice().sort((a,b)=>(a.at||0)-(b.at||0));
+  const cnt=$('#cmtCnt'); if(cnt) cnt.textContent = arr.length;
+  if(!arr.length){ box.innerHTML = '<div class="hint" style="padding:14px 0">첫 댓글을 남겨 보세요.</div>'; return; }
+  box.innerHTML = arr.map(c=>`
+    <div class="cmt-row">
+      <div class="cmt-hd">
+        <b>${badgeHTML({author:c.name, authorEmail:c.uid})}${esc(c.name||'익명')}</b>
+        <span>${ago(c.at)}</span>
+        ${canDelComment(c,sid)? `<button data-cdel="${esc(c.id)}" title="삭제">✕</button>`:''}
+      </div>
+      <div class="cmt-bd">${esc(c.body||'')}</div>
+    </div>`).join('');
+  $$('#cmtList [data-cdel]').forEach(b=> b.onclick=async ()=>{
+    if(!confirm('이 댓글을 지울까요?')) return;
+    try{ await Store.delComment(sid, eid, b.dataset.cdel); toast('지웠습니다'); }
+    catch(e){ console.error(e); toast('지우지 못했습니다. 시간이 지난 댓글은 관리자만 지울 수 있습니다.'); }
+  });
+}
+function setupComments(sid, eid){
+  Store.watchComments(sid, eid, list=>{
+    if(!S.reader || S.reader.sid!==sid || S.reader.eid!==eid) return;
+    renderComments(sid, eid, list);
+  });
+  const go=$('#cmtGo'), ta=$('#cmtBody');
+  if(!go) return;
+  go.onclick = async ()=>{
+    if(!Me.name){ showGate(true); return; }
+    const body=ta.value.trim();
+    if(!body){ toast('내용을 입력해 주세요'); return; }
+    go.disabled=true;
+    try{
+      await Store.addComment(sid, eid, {
+        name: Me.name.slice(0,20), did: Me.did, body: body.slice(0,1000),
+        at: now(), uid: S.user? S.user.email : ''
+      });
+      ta.value=''; toast('댓글을 남겼습니다');
+    }catch(e){ console.error(e); toast('댓글을 남기지 못했습니다'); }
+    go.disabled=false;
+  };
+  ta.onkeydown = e=>{ if((e.metaKey||e.ctrlKey) && e.key==='Enter') go.click(); };
+}
+
 /* 책갈피 버튼 */
 function renderMarkBtn(){
   const b=$('#rdMarkBtn'); if(!b || !S.reader) return;
@@ -1316,6 +1452,7 @@ function toggleMark(){
   const pos = el.scrollHeight>el.clientHeight ? el.scrollTop/(el.scrollHeight-el.clientHeight) : 0;
   const on = Mark.toggle({sid, eid, no:e.no||0, title:e.title||'', series:ss.title||'', pos, at:now()});
   renderMarkBtn();
+  setupComments(sid, eid);
   toast(on? '책갈피를 꽂았습니다' : '책갈피를 뺐습니다');
   if(location.hash==='#/'||location.hash==='') viewHome();
 }
@@ -1603,6 +1740,13 @@ function openAccountModal(){
       ${u? `<div class="hint" style="margin:-4px 0 14px">${esc(u.email)} ${isAdmin()?'· 관리자':(canWrite()?'· 작가':'· 읽기 전용')}</div>`:''}
       <div class="f"><label>이름 <span class="opt">(작품과 화면에 표시되는 이름)</span></label>
         <input class="inp" id="aName" value="${esc(Me.name||(u? u.name:''))}" placeholder="예: 야근왕"></div>
+      ${(Store.mode==='cloud' && myRec())? `
+      <div class="f"><label>내 뱃지 <span class="opt">(이름 앞에 붙습니다)</span></label>
+        <input class="inp" id="aBadge" value="${esc((myRec().badge)||'')}" placeholder="공식작가" maxlength="6">
+        <div class="pal" id="aColor">${Object.keys(BADGES).map(k=>`<button data-c="${k}" class="${((myRec().badgeColor)||'violet')===k?'on':''}" style="background:${BADGES[k][0]}"></button>`).join('')}</div>
+        <div class="icon-pal" id="aIcon">${BADGE_ICONS.map(ic=>`<button data-i="${ic}" class="${((myRec().badgeIcon)||'')===ic?'on':''}">${ic||'없음'}</button>`).join('')}</div>
+        <div class="badge-prev">미리보기 <span id="aPrev"></span></div>
+      </div>`:''}
       ${isAdmin() && Store.mode==='cloud'? `<div style="display:flex;gap:8px">
         <button class="btn btn-line" id="aAuthors">작가 관리</button>
         <button class="btn btn-line" id="aReaders">접속자 관리</button></div>`:''}
@@ -1614,10 +1758,32 @@ function openAccountModal(){
       <button class="btn btn-pri" id="aSave">저장</button>
     </div>`;
   $('#ovl').classList.add('on'); markModalOpen();
-  $('#aSave').onclick = ()=>{
+  const prevB = ()=>{
+    if(!$('#aPrev')) return;
+    $('#aPrev').innerHTML = badgePreview(
+      ($('#aIcon .on')? $('#aIcon .on').dataset.i : ''),
+      $('#aBadge').value.trim(),
+      ($('#aColor .on')? $('#aColor .on').dataset.c : 'violet'));
+  };
+  prevB();
+  if($('#aBadge')) $('#aBadge').oninput = prevB;
+  $$('#aColor button').forEach(b=> b.onclick=()=>{ $$('#aColor button').forEach(x=>x.classList.toggle('on',x===b)); prevB(); });
+  $$('#aIcon button').forEach(b=> b.onclick=()=>{ $$('#aIcon button').forEach(x=>x.classList.toggle('on',x===b)); prevB(); });
+  $('#aSave').onclick = async ()=>{
     const v=$('#aName').value.trim();
     if(!v){ toast('이름을 입력해 주세요'); return; }
-    Me.name=v; Store.touchReader(v); renderWho(); closeModal(); toast('이름을 저장했습니다');
+    Me.name=v; Store.touchReader(v);
+    if($('#aBadge') && myRec()){
+      try{
+        await Store.updateMe({
+          name: v,
+          badge: $('#aBadge').value.trim(),
+          badgeColor: ($('#aColor .on')? $('#aColor .on').dataset.c : 'violet'),
+          badgeIcon: ($('#aIcon .on')? $('#aIcon .on').dataset.i : '')
+        });
+      }catch(e){ permErr(e); }
+    }
+    renderWho(); closeModal(); toast('저장했습니다');
   };
   if($('#aOut')) $('#aOut').onclick = ()=>{ Store.signOut(); closeModal(); };
   if($('#aIn'))  $('#aIn').onclick  = ()=> openLoginModal();
@@ -1696,6 +1862,9 @@ function openAuthorsModal(){
           <div class="f"><label>뱃지 색</label>
             <div class="pal" id="eColor">${Object.keys(BADGES).map(k=>`<button data-c="${k}" class="${(x.badgeColor||'violet')===k?'on':''}" style="background:${BADGES[k][0]}"></button>`).join('')}</div>
           </div>
+          <div class="f"><label>뱃지 아이콘</label>
+            <div class="icon-pal" id="eIcon">${BADGE_ICONS.map(ic=>`<button data-i="${ic}" class="${(x.badgeIcon||'')===ic?'on':''}">${ic||'없음'}</button>`).join('')}</div>
+          </div>
           <div class="f"><label>글을 쓸 수 있는 게시판 <span class="opt">(아무것도 안 고르면 전체)</span></label>
             <div class="chips" id="eCats" style="margin-bottom:0">
               ${S.cats.map(c=>`<button class="chip ${cats.includes(c)?'on':''}" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
@@ -1733,7 +1902,7 @@ function openAuthorsModal(){
       const em=$('#nEmail').value.trim();
       if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ toast('이메일 형식을 확인해 주세요'); return; }
       try{
-        await Store.addAuthor(em, {name:$('#nName').value.trim(), badge:'', badgeColor:'violet', cats:[], editOthers:false});
+        await Store.addAuthor(em, {name:$('#nName').value.trim(), badge:'', badgeColor:'violet', badgeIcon:'', cats:[], editOthers:false});
         open = em.toLowerCase(); toast('작가를 추가했습니다');
       }catch(e){ permErr(e); }
     };
@@ -1744,6 +1913,9 @@ function openAuthorsModal(){
       $$('#eColor button').forEach(x=>x.classList.toggle('on', x===btn));
     });
     $$('#eCats .chip').forEach(btn=> btn.onclick=()=> btn.classList.toggle('on'));
+    $$('#eIcon button').forEach(btn=> btn.onclick=()=>{
+      $$('#eIcon button').forEach(x=>x.classList.toggle('on', x===btn));
+    });
     $$('#modal [data-save]').forEach(btn=> btn.onclick=async ()=>{
       const color = ($('#eColor .on')||{}).dataset ? $('#eColor .on').dataset.c : 'violet';
       const cats = $$('#eCats .chip.on').map(x=>x.dataset.cat);
@@ -1752,6 +1924,7 @@ function openAuthorsModal(){
           name: $('#eName').value.trim(),
           badge: $('#eBadge').value.trim(),
           badgeColor: color,
+          badgeIcon: ($('#eIcon .on')? $('#eIcon .on').dataset.i : ''),
           cats, editOthers: $('#eEdit').checked
         });
         toast('저장했습니다'); open=null;
