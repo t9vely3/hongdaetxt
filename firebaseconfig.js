@@ -16,7 +16,7 @@ apiKey: "AIzaSyBCGs8MWo5Bw8FDf5up9x5dmvN2_SWqXO4",
 };
 
 // 작가를 임명하는 관리자 계정 (보안 규칙에 적은 이메일과 같아야 합니다)
-window.ADMIN_EMAIL = "여기에-관리자-t9vely@naver.com";
+window.ADMIN_EMAIL = "t9vely@naver.com";
 
 // 구글 로그인 버튼도 함께 띄우려면 true
 window.ENABLE_GOOGLE_LOGIN = false;
