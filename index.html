@@ -318,7 +318,9 @@ textarea.inp{resize:vertical;min-height:96px;line-height:1.7}
 .empty b{display:block;font-family:var(--font-disp);font-size:17px;color:var(--tx-2);margin-bottom:8px;font-weight:700}
 .toast{position:fixed;left:50%;bottom:34px;transform:translate(-50%,20px);background:var(--tx);color:var(--bg);padding:12px 20px;border-radius:11px;font-size:14px;font-weight:600;z-index:400;opacity:0;transition:.24s;pointer-events:none;box-shadow:var(--shadow-lg)}
 .toast.on{opacity:1;transform:translate(-50%,0)}
-.mode-bar{background:var(--accent-soft);color:var(--accent-tx);font-size:12.5px;font-weight:600;text-align:center;padding:7px 16px}
+.mode-bar{background:var(--accent-soft);color:var(--accent-tx);font-size:12.5px;font-weight:500;text-align:center;padding:8px 16px;line-height:1.6}
+.mode-bar b{font-weight:800}
+.mode-bar #whyBtn{margin-left:8px;text-decoration:underline;text-underline-offset:3px;font-weight:700;color:inherit}
 .mode-bar.warn{background:#fff4e0;color:#9a6100}
 :root[data-theme="dark"] .mode-bar.warn{background:#3a2c10;color:#f0b33c}
 .crumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--tx-3);padding:18px 0 0}
@@ -577,16 +579,29 @@ function toast(msg){
    2. 저장소 (Firestore ↔ localStorage 폴백)
    ══════════════════════════════════════════════════ */
 const Store = {
-  mode:'local', db:null, _subs:[], _epSubs:{},
+  mode:'local', why:null, whyMsg:'', db:null, _subs:[], _epSubs:{},
   init(){
-    const cfg = window.FIREBASE_CONFIG;
-    const ok = cfg && cfg.projectId && String(cfg.apiKey||'').indexOf('여기에')<0;
-    if(ok && window.firebase && firebase.firestore){
-      try{
-        if(!firebase.apps.length) firebase.initializeApp(cfg);
-        this.db = firebase.firestore();
-        this.mode = 'cloud';
-      }catch(e){ console.warn('Firebase 초기화 실패, 로컬 모드로 전환', e); this.mode='local'; }
+    // 변수 이름을 다르게 붙여 넣은 경우까지 받아 준다
+    let cfg = window.FIREBASE_CONFIG || window.firebaseConfig || null;
+    if(!cfg){ try{ cfg = firebaseConfig; }catch(e){} }
+    if(cfg && !window.FIREBASE_CONFIG) window.FIREBASE_CONFIG = cfg;
+
+    if(!cfg || !cfg.apiKey || !cfg.projectId){
+      this.why = 'no-config'; return this.mode;
+    }
+    if(/여기에|YOUR_|xxxx/i.test(cfg.apiKey+' '+cfg.projectId)){
+      this.why = 'placeholder'; return this.mode;
+    }
+    if(!window.firebase || !firebase.firestore){
+      this.why = 'no-sdk'; return this.mode;
+    }
+    try{
+      if(!firebase.apps.length) firebase.initializeApp(cfg);
+      this.db = firebase.firestore();
+      this.mode = 'cloud'; this.why = null;
+    }catch(e){
+      console.error('Firebase 초기화 실패', e);
+      this.why = 'init-failed'; this.whyMsg = e.message||'';
     }
     return this.mode;
   },
@@ -1364,7 +1379,7 @@ function openStatusModal(){
         ${cloud? row('다녀간 독자', S.readers.length+'명') : ''}
       </div>
       ${S.conn.err? `<div class="hint" style="color:var(--danger);margin-top:10px">${esc(S.conn.err)}</div>`:''}
-      ${!cloud? `<div class="hint" style="margin-top:10px">index.html 위쪽 FIREBASE_CONFIG에 콘솔 값을 넣으면 팀원과 공유되는 모드로 바뀝니다.</div>`:''}
+      ${!cloud? `<div class="hint" style="margin-top:10px">${WHY[Store.why]||'index.html 위쪽 FIREBASE_CONFIG에 콘솔 값을 넣으면 팀원과 공유되는 모드로 바뀝니다.'}${Store.whyMsg? '<br>'+esc(Store.whyMsg):''}</div>`:''}
     </div>
     <div class="modal-ft"><button class="btn btn-line" data-close>닫기</button></div>`;
   $('#ovl').classList.add('on');
@@ -1774,10 +1789,21 @@ function seedDemo(){
   });
   Store._saveLocal(d);
 }
+const WHY = {
+  'no-config'  : 'window.FIREBASE_CONFIG 를 찾지 못했습니다. 콘솔에서 복사한 코드가 <b>const firebaseConfig = {…}</b> 로 시작한다면, 앞부분을 <b>window.FIREBASE_CONFIG = {…}</b> 로 바꿔 주세요.',
+  'placeholder': '설정값이 아직 예시 그대로입니다. apiKey·projectId 등을 콘솔에서 복사한 값으로 바꿔 주세요.',
+  'no-sdk'     : 'Firebase 스크립트를 불러오지 못했습니다. 인터넷 연결이나 사내 방화벽, 광고 차단 확장을 확인해 주세요.',
+  'init-failed': 'Firebase 초기화 중 오류가 났습니다.'
+};
 function modeBar(){
   const el=$('#modeBar');
   if(Store.mode==='cloud'){ el.innerHTML=''; renderConn(); return; }
-  el.innerHTML = `<div class="mode-bar warn">데모 모드로 실행 중입니다 · 내용이 이 브라우저에만 저장됩니다. 파일 위쪽 FIREBASE_CONFIG에 설정을 넣으면 팀원과 공유됩니다.</div>`;
+  const why = WHY[Store.why] || '파일 위쪽 FIREBASE_CONFIG에 콘솔 설정을 넣으면 팀원과 공유됩니다.';
+  el.innerHTML = `<div class="mode-bar warn">
+    <b>데모 모드</b> · 내용이 이 브라우저에만 저장됩니다 — ${why}
+    ${Store.whyMsg? ' ('+esc(Store.whyMsg)+')' : ''}
+    <button id="whyBtn">자세히</button></div>`;
+  $('#whyBtn').onclick = openStatusModal;
 }
 function boot(){
   setTheme(LS.get('mg_theme','auto'));
