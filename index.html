@@ -1091,7 +1091,12 @@ function badgeChip(icon, text, color, solid){
     ? `<span class="badge" style="background:${c[0]};color:${c[1]}">${inner}</span>`
     : `<span class="badge plain" style="color:${c[0]}">${inner}</span>`;
 }
-function isAuthorEmail(em){ return !!(em && S.authors.some(a=>a.email===em)); }
+function adminEmail(){ return String(window.ADMIN_EMAIL||'').trim().toLowerCase(); }
+function isAuthorEmail(em){
+  if(!em) return false;
+  if(em === adminEmail()) return true;            // 관리자도 알약 뱃지
+  return S.authors.some(a=>a.email===em);
+}
 function badgeHTML(obj){
   // 댓글처럼 뱃지 값이 직접 실려 있는 경우
   if(obj && obj.body!==undefined){
@@ -1109,7 +1114,7 @@ function myBadge(){
 }
 function badgePreview(icon, text, color, solid){
   if(!text && !icon) return '<span class="hint">뱃지 없음</span>';
-  return badgeChip(icon, text, color, solid===undefined? !!myRec() : solid);
+  return badgeChip(icon, text, color, solid===undefined? (!!myRec() || isAdmin()) : solid);
 }
 
 /* ══════════════════════════════════════════════════
@@ -1897,8 +1902,8 @@ function openAccountModal(){
         <div class="pal" id="aColor">${Object.keys(BADGES).map(k=>`<button data-c="${k}" class="${(myBadge().color||'violet')===k?'on':''}" style="background:${BADGES[k][0]}"></button>`).join('')}</div>
         <div class="icon-pal" id="aIcon">${BADGE_ICONS.map(ic=>`<button data-i="${ic}" class="${(myBadge().icon||'')===ic?'on':''}">${ic||'없음'}</button>`).join('')}</div>
         <div class="badge-prev">미리보기 <span id="aPrev"></span></div>
-        <div class="hint">${myRec()
-          ? '작가 뱃지는 색이 채워진 모양으로 작품과 댓글 모두에 붙습니다.'
+        <div class="hint">${(myRec()||isAdmin())
+          ? '색이 채워진 모양으로 작품과 댓글 모두에 붙습니다.'
           : '독자 뱃지는 배경 없이 글자만 표시됩니다. 댓글과 내 이름 옆에 보입니다.'}</div>
       </div>
       ${isAdmin() && Store.mode==='cloud'? `<div style="display:flex;gap:8px">
@@ -1933,7 +1938,7 @@ function openAccountModal(){
       icon:  ($('#aIcon .on')? $('#aIcon .on').dataset.i : '')
     };
     Me.badge = nb;
-    if(myRec()){
+    if(myRec() || (isAdmin() && Store.mode==='cloud')){
       try{ await Store.updateMe({name:v, badge:nb.text, badgeColor:nb.color, badgeIcon:nb.icon}); }
       catch(e){ permErr(e); }
     }
@@ -2005,7 +2010,7 @@ function openAuthorsModal(){
       return `<div class="au ${isOpen?'open':''}">
         <div class="au-hd" data-open="${esc(x.email)}">
           <div class="au-nm">${badgeChip(x.badgeIcon, x.badge, x.badgeColor, true)}${esc(x.name||x.email.split('@')[0])}</div>
-          <div class="au-em">${esc(x.email)}</div>
+          <div class="au-em">${esc(x.email)}${x.email===adminEmail()? ' · 관리자':''}</div>
           <div class="au-sc">${cats.length? esc(cats.join(', ')) : '전체 분류'}${x.editOthers? ' · 남의 글 수정' : ''}</div>
           <span class="au-ar">${isOpen?'▴':'▾'}</span>
         </div>
@@ -2319,7 +2324,7 @@ function renderWho(){
   }
   const n = Me.name || (S.user? S.user.name : '');
   const mb = myBadge();
-  $('#whoName').innerHTML = (mb && (mb.text||mb.icon)? badgeChip(mb.icon, mb.text, mb.color, !!myRec()) : '') + esc(n||'이름 설정');
+  $('#whoName').innerHTML = (mb && (mb.text||mb.icon)? badgeChip(mb.icon, mb.text, mb.color, !!myRec() || isAdmin()) : '') + esc(n||'이름 설정');
   const a=$('#whoAva');
   a.textContent = n? n.slice(-2) : '?';
   const g=GRADS[hashN(n||'x',GRADS.length)];
