@@ -72,6 +72,7 @@
 }
 
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{
   margin:0;background:var(--bg);color:var(--tx);
   font-family:var(--font);
@@ -292,8 +293,13 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .note-hd b{color:var(--tx);font-weight:700;font-size:13.5px}
 .note-bd{white-space:pre-wrap;font-size:14.5px;line-height:1.8;color:var(--tx-2)}
 .reader.cmt-only .note{margin-top:16px}
+.reader.cmt-only #cmtOnly{display:none}
 
 /* ── 댓글 ─────────────────────────────────── */
+.cmt-back{display:block;width:100%;margin:0 0 4px;padding:11px;border-radius:11px;
+  background:var(--accent-soft);color:var(--accent-tx);font-weight:700;font-size:13.5px}
+.cmt-back:hover{filter:brightness(.97)}
+.who .badge{margin-right:4px}
 .ep-cmt{display:flex;align-items:center;gap:5px;flex:none;padding:5px 9px;border-radius:8px;
   font-size:12px;font-weight:700;color:var(--tx-3);background:var(--bg-soft);font-variant-numeric:tabular-nums}
 .ep-cmt:hover{color:var(--accent-tx);background:var(--accent-soft)}
@@ -367,6 +373,7 @@ body:has(.wr) .fab{display:none}
 
 /* ── 작가 뱃지 · 작가 관리 ─────────────────── */
 .badge{display:inline-block;font-size:10.5px;font-weight:800;line-height:1;padding:3px 6px;border-radius:5px;margin-right:5px;vertical-align:1px;letter-spacing:-.02em}
+.badge.plain{background:none!important;padding:3px 0;margin-right:4px;font-weight:700;opacity:.95}
 .sd-by .badge,.hero-meta .badge{font-size:11px;padding:4px 7px}
 .au{border:1px solid var(--line);border-radius:11px;margin-bottom:8px;overflow:hidden;background:var(--surface)}
 .au.open{border-color:var(--accent)}
@@ -858,8 +865,9 @@ const Store = {
     const nm = String(name||'').trim().slice(0,20);
     if(!nm) return;
     try{
+      const b = Me.badge || {};
       await this.db.collection('novel_readers').doc(Me.did)
-        .set({name:nm, lastSeen:now()}, {merge:true});
+        .set({name:nm, lastSeen:now(), badge:(b.text||''), badgeColor:(b.color||'violet'), badgeIcon:(b.icon||'')}, {merge:true});
     }catch(e){ /* 규칙이 막아도 읽기에는 지장 없음 */ }
   },
   watchReaders(cb){
@@ -908,6 +916,28 @@ const Store = {
     await this.db.collection('novel_series').doc(sid)
       .collection('episodes').doc(eid).collection('comments').add(c);
     this.bumpCmt(sid, eid, 1);
+  },
+  async setCmtCount(sid, eid, n){
+    if(this.mode!=='cloud'){
+      const d=this._local();
+      if(d.eps[sid] && d.eps[sid][eid]){ d.eps[sid][eid].cmtCount=n; this._saveLocal(d); this._pushEps(sid); }
+      return;
+    }
+    this.db.collection('novel_series').doc(sid).collection('episodes').doc(eid)
+      .update({cmtCount:n}).catch(()=>{});
+  },
+  // 아직 숫자가 없는 회차의 댓글 수를 한 번 세어 온다
+  async backfillCounts(sid, eps){
+    if(this.mode!=='cloud') return;
+    const todo = eps.filter(e=>typeof e.cmtCount!=='number').slice(0,20);
+    for(const e of todo){
+      try{
+        const snap = await this.db.collection('novel_series').doc(sid)
+          .collection('episodes').doc(e.id).collection('comments').get();
+        if(snap.size>0) this.setCmtCount(sid, e.id, snap.size);
+        else e.cmtCount = 0;
+      }catch(err){ /* 무시 */ }
+    }
   },
   bumpCmt(sid, eid, d){
     if(this.mode!=='cloud') return;
@@ -966,7 +996,9 @@ const S = {
 };
 const Me   = {
   get name(){ return LS.get('mg_me',''); }, set name(v){ LS.set('mg_me',v); },
-  get did(){ let d=LS.get('mg_did',''); if(!d){ d=uid()+uid(); LS.set('mg_did',d); } return d; }
+  get did(){ let d=LS.get('mg_did',''); if(!d){ d=uid()+uid(); LS.set('mg_did',d); } return d; },
+  get badge(){ return LS.get('mg_badge', {text:'',color:'violet',icon:''}); },
+  set badge(v){ LS.set('mg_badge', v); }
 };
 const Mark = {
   all(){ return LS.get('mg_marks', []); },
@@ -1050,16 +1082,34 @@ function recOf(obj){
   return S.authors.find(a=> (obj.authorEmail && a.email===obj.authorEmail))
       || S.authors.find(a=> a.name && a.name===obj.author) || null;
 }
+/* 작가 뱃지는 색이 채워진 알약, 독자 뱃지는 배경 없이 글자만 */
+function badgeChip(icon, text, color, solid){
+  if(!text && !icon) return '';
+  const c = BADGES[color||'violet'] || BADGES.violet;
+  const inner = (icon? esc(icon)+(text?' ':'') : '') + esc(text||'');
+  return solid
+    ? `<span class="badge" style="background:${c[0]};color:${c[1]}">${inner}</span>`
+    : `<span class="badge plain" style="color:${c[0]}">${inner}</span>`;
+}
+function isAuthorEmail(em){ return !!(em && S.authors.some(a=>a.email===em)); }
 function badgeHTML(obj){
+  // 댓글처럼 뱃지 값이 직접 실려 있는 경우
+  if(obj && obj.body!==undefined){
+    if(!obj.badge && !obj.badgeIcon) return '';
+    return badgeChip(obj.badgeIcon, obj.badge, obj.badgeColor, isAuthorEmail(obj.uid));
+  }
   const r=recOf(obj);
   if(!r || (!r.badge && !r.badgeIcon)) return '';
-  const c=BADGES[r.badgeColor||'violet']||BADGES.violet;
-  return `<span class="badge" style="background:${c[0]};color:${c[1]}">${r.badgeIcon? esc(r.badgeIcon)+(r.badge?' ':'') : ''}${esc(r.badge||'')}</span>`;
+  return badgeChip(r.badgeIcon, r.badge, r.badgeColor, true);
 }
-function badgePreview(icon, text, color){
-  const c=BADGES[color||'violet']||BADGES.violet;
+function myBadge(){
+  const r = myRec();
+  if(r && (r.badge || r.badgeIcon)) return {text:r.badge||'', color:r.badgeColor||'violet', icon:r.badgeIcon||''};
+  return Me.badge;
+}
+function badgePreview(icon, text, color, solid){
   if(!text && !icon) return '<span class="hint">뱃지 없음</span>';
-  return `<span class="badge" style="background:${c[0]};color:${c[1]}">${icon? esc(icon)+(text?' ':'') : ''}${esc(text||'')}</span>`;
+  return badgeChip(icon, text, color, solid===undefined? !!myRec() : solid);
 }
 
 /* ══════════════════════════════════════════════════
@@ -1297,6 +1347,7 @@ function viewSeries(id){
 
   Store.watchEpisodes(id, eps=>{
     S.eps[id]=eps;
+    Store.backfillCounts(id, eps);
     if(location.hash.indexOf('#/series/'+id)!==0) return;
     renderEpList(id);
   });
@@ -1393,6 +1444,7 @@ async function openReader(sid, eid){
       <div class="note-hd">${badgeHTML(e)}<b>${esc(e.author||'작가')}</b>의 말</div>
       <div class="note-bd">${esc(e.note)}</div>
     </section>`:''}
+    <button class="cmt-back" id="cmtBack" hidden>본문 보기 ↑</button>
     <section class="cmt">
       <h3>댓글 <span id="cmtCnt">0</span>
         <button class="btn btn-soft" id="cmtOnly" style="float:right;padding:6px 12px;font-size:12.5px">본문 숨기기</button>
@@ -1419,8 +1471,9 @@ async function openReader(sid, eid){
   renderMarkBtn();
   setupComments(sid, eid);
   applyCmtOnly();
+  S.cmtOnly = false;      // 다음 회차로 넘어가면 본문부터 보이게
   S.uiOn = true; applyUI();
-  if(S.cmtOnly) setTimeout(()=>{ const c=$('.cmt'); if(c) c.scrollIntoView({block:'start'}); }, 80);
+  if(S.view_cmtOnly) setTimeout(()=>{ const c=$('.cmt'); if(c) c.scrollIntoView({block:'start'}); }, 80);
   Read.mark(sid, eid);
   Store.bumpView(sid, eid);
   const prev = ()=> idx>0 && goRead(sid, eps[idx-1].id);
@@ -1458,10 +1511,13 @@ function applyUI(){
   r.classList.toggle('ui-off', !S.uiOn);
 }
 function toggleUI(){ S.uiOn = !S.uiOn; applyUI(); }
-function applyCmtOnly(){
+function applyCmtOnly(on){
+  const v = (on===undefined)? !!S.cmtOnly : !!on;
+  S.view_cmtOnly = v;
   const r=$('#reader'); if(!r) return;
-  r.classList.toggle('cmt-only', !!S.cmtOnly);
-  const b=$('#cmtOnly'); if(b) b.textContent = S.cmtOnly? '본문 보기' : '본문 숨기기';
+  r.classList.toggle('cmt-only', v);
+  const b=$('#cmtOnly'); if(b) b.textContent = v? '본문 보기' : '본문 숨기기';
+  const t=$('#cmtBack'); if(t) t.hidden = !v;
 }
 function canDelComment(c, sid){
   if(isAdmin() || Store.mode!=='cloud') return true;
@@ -1474,11 +1530,14 @@ function renderComments(sid, eid, list){
   const box=$('#cmtList'); if(!box) return;
   const arr = list.slice().sort((a,b)=>(a.at||0)-(b.at||0));
   const cnt=$('#cmtCnt'); if(cnt) cnt.textContent = arr.length;
+  // 목록에 보이는 숫자와 실제 개수가 다르면 맞춰 둔다
+  const ep=(S.eps[sid]||[]).find(x=>x.id===eid);
+  if(ep && (ep.cmtCount||0)!==arr.length) Store.setCmtCount(sid, eid, arr.length);
   if(!arr.length){ box.innerHTML = '<div class="hint" style="padding:14px 0">첫 댓글을 남겨 보세요.</div>'; return; }
   box.innerHTML = arr.map(c=>`
     <div class="cmt-row">
       <div class="cmt-hd">
-        <b>${badgeHTML({author:c.name, authorEmail:c.uid})}${esc(c.name||'익명')}</b>
+        <b>${badgeHTML(c)}${esc(c.name||'익명')}</b>
         <span>${ago(c.at)}</span>
         ${canDelComment(c,sid)? `<button data-cdel="${esc(c.id)}" title="삭제">✕</button>`:''}
       </div>
@@ -1503,9 +1562,11 @@ function setupComments(sid, eid){
     if(!body){ toast('내용을 입력해 주세요'); return; }
     go.disabled=true;
     try{
+      const mb = myBadge();
       await Store.addComment(sid, eid, {
         name: Me.name.slice(0,20), did: Me.did, body: body.slice(0,1000),
-        at: now(), uid: S.user? S.user.email : ''
+        at: now(), uid: S.user? S.user.email : '',
+        badge: (mb.text||'').slice(0,6), badgeColor: mb.color||'violet', badgeIcon: mb.icon||''
       });
       ta.value=''; toast('댓글을 남겼습니다');
     }catch(e){ console.error(e); toast('댓글을 남기지 못했습니다'); }
@@ -1513,7 +1574,14 @@ function setupComments(sid, eid){
   };
   ta.onkeydown = e=>{ if((e.metaKey||e.ctrlKey) && e.key==='Enter') go.click(); };
   const only=$('#cmtOnly');
-  if(only) only.onclick = ()=>{ S.cmtOnly=!S.cmtOnly; applyCmtOnly(); if(S.cmtOnly){ const c=$('.cmt'); if(c) c.scrollIntoView({block:'start'}); } };
+  const flip = ()=>{
+    const v = !S.view_cmtOnly;
+    applyCmtOnly(v);
+    if(v){ const c=$('.cmt'); if(c) c.scrollIntoView({block:'start'}); }
+    else { const r=$('#reader'); if(r) r.scrollTop=0; }
+  };
+  if(only) only.onclick = flip;
+  const back=$('#cmtBack'); if(back) back.onclick = flip;
 }
 
 /* 책갈피 버튼 */
@@ -1534,8 +1602,9 @@ function toggleMark(){
   renderMarkBtn();
   setupComments(sid, eid);
   applyCmtOnly();
+  S.cmtOnly = false;      // 다음 회차로 넘어가면 본문부터 보이게
   S.uiOn = true; applyUI();
-  if(S.cmtOnly) setTimeout(()=>{ const c=$('.cmt'); if(c) c.scrollIntoView({block:'start'}); }, 80);
+  if(S.view_cmtOnly) setTimeout(()=>{ const c=$('.cmt'); if(c) c.scrollIntoView({block:'start'}); }, 80);
   toast(on? '책갈피를 꽂았습니다' : '책갈피를 뺐습니다');
   if(location.hash==='#/'||location.hash==='') viewHome();
 }
@@ -1823,13 +1892,15 @@ function openAccountModal(){
       ${u? `<div class="hint" style="margin:-4px 0 14px">${esc(u.email)} ${isAdmin()?'· 관리자':(canWrite()?'· 작가':'· 읽기 전용')}</div>`:''}
       <div class="f"><label>이름 <span class="opt">(작품과 화면에 표시되는 이름)</span></label>
         <input class="inp" id="aName" value="${esc(Me.name||(u? u.name:''))}" placeholder="예: 야근왕"></div>
-      ${(Store.mode==='cloud' && myRec())? `
       <div class="f"><label>내 뱃지 <span class="opt">(이름 앞에 붙습니다)</span></label>
-        <input class="inp" id="aBadge" value="${esc((myRec().badge)||'')}" placeholder="공식작가" maxlength="6">
-        <div class="pal" id="aColor">${Object.keys(BADGES).map(k=>`<button data-c="${k}" class="${((myRec().badgeColor)||'violet')===k?'on':''}" style="background:${BADGES[k][0]}"></button>`).join('')}</div>
-        <div class="icon-pal" id="aIcon">${BADGE_ICONS.map(ic=>`<button data-i="${ic}" class="${((myRec().badgeIcon)||'')===ic?'on':''}">${ic||'없음'}</button>`).join('')}</div>
+        <input class="inp" id="aBadge" value="${esc(myBadge().text||'')}" placeholder="열혈독자" maxlength="6">
+        <div class="pal" id="aColor">${Object.keys(BADGES).map(k=>`<button data-c="${k}" class="${(myBadge().color||'violet')===k?'on':''}" style="background:${BADGES[k][0]}"></button>`).join('')}</div>
+        <div class="icon-pal" id="aIcon">${BADGE_ICONS.map(ic=>`<button data-i="${ic}" class="${(myBadge().icon||'')===ic?'on':''}">${ic||'없음'}</button>`).join('')}</div>
         <div class="badge-prev">미리보기 <span id="aPrev"></span></div>
-      </div>`:''}
+        <div class="hint">${myRec()
+          ? '작가 뱃지는 색이 채워진 모양으로 작품과 댓글 모두에 붙습니다.'
+          : '독자 뱃지는 배경 없이 글자만 표시됩니다. 댓글과 내 이름 옆에 보입니다.'}</div>
+      </div>
       ${isAdmin() && Store.mode==='cloud'? `<div style="display:flex;gap:8px">
         <button class="btn btn-line" id="aAuthors">작가 관리</button>
         <button class="btn btn-line" id="aReaders">접속자 관리</button></div>`:''}
@@ -1855,17 +1926,18 @@ function openAccountModal(){
   $('#aSave').onclick = async ()=>{
     const v=$('#aName').value.trim();
     if(!v){ toast('이름을 입력해 주세요'); return; }
-    Me.name=v; Store.touchReader(v);
-    if($('#aBadge') && myRec()){
-      try{
-        await Store.updateMe({
-          name: v,
-          badge: $('#aBadge').value.trim(),
-          badgeColor: ($('#aColor .on')? $('#aColor .on').dataset.c : 'violet'),
-          badgeIcon: ($('#aIcon .on')? $('#aIcon .on').dataset.i : '')
-        });
-      }catch(e){ permErr(e); }
+    Me.name=v;
+    const nb = {
+      text: ($('#aBadge')? $('#aBadge').value.trim() : ''),
+      color: ($('#aColor .on')? $('#aColor .on').dataset.c : 'violet'),
+      icon:  ($('#aIcon .on')? $('#aIcon .on').dataset.i : '')
+    };
+    Me.badge = nb;
+    if(myRec()){
+      try{ await Store.updateMe({name:v, badge:nb.text, badgeColor:nb.color, badgeIcon:nb.icon}); }
+      catch(e){ permErr(e); }
     }
+    Store.touchReader(v);
     renderWho(); closeModal(); toast('저장했습니다');
   };
   if($('#aOut')) $('#aOut').onclick = ()=>{ Store.signOut(); closeModal(); };
@@ -1932,7 +2004,7 @@ function openAuthorsModal(){
       const isOpen = open===x.email;
       return `<div class="au ${isOpen?'open':''}">
         <div class="au-hd" data-open="${esc(x.email)}">
-          <div class="au-nm">${x.badge? `<span class="badge" style="background:${c[0]};color:${c[1]}">${esc(x.badge)}</span>`:''}${esc(x.name||x.email.split('@')[0])}</div>
+          <div class="au-nm">${badgeChip(x.badgeIcon, x.badge, x.badgeColor, true)}${esc(x.name||x.email.split('@')[0])}</div>
           <div class="au-em">${esc(x.email)}</div>
           <div class="au-sc">${cats.length? esc(cats.join(', ')) : '전체 분류'}${x.editOthers? ' · 남의 글 수정' : ''}</div>
           <span class="au-ar">${isOpen?'▴':'▾'}</span>
@@ -2246,7 +2318,8 @@ function renderWho(){
     return;
   }
   const n = Me.name || (S.user? S.user.name : '');
-  $('#whoName').textContent = n||'이름 설정';
+  const mb = myBadge();
+  $('#whoName').innerHTML = (mb && (mb.text||mb.icon)? badgeChip(mb.icon, mb.text, mb.color, !!myRec()) : '') + esc(n||'이름 설정');
   const a=$('#whoAva');
   a.textContent = n? n.slice(-2) : '?';
   const g=GRADS[hashN(n||'x',GRADS.length)];
